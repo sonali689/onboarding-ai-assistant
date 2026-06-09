@@ -2,9 +2,9 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
 from langchain_community.embeddings import OllamaEmbeddings
-from langchain.schema import Document
+from langchain_core import Document
 
 from config import (
     CHROMA_DB_DIR,
@@ -86,7 +86,7 @@ def run_ingestion():
         # Step 6 — Embed and store
         if all_chunks:
             vectorstore.add_documents(all_chunks)
-            vectorstore.persist()
+            #vectorstore.persist()
             total_chunks += len(all_chunks)
             print(f"  ✅ Chunks created and stored: {len(all_chunks)}")
         else:

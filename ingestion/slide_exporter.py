@@ -1,9 +1,9 @@
 import os
 import re
+import sys
 import unicodedata
 from PIL import Image
 from pptx import Presentation
-from pptx.util import Inches
 from config import SLIDE_IMAGE_FOLDER, SLIDE_EXPORT_DPI
 
 
@@ -11,11 +11,83 @@ def sanitize_for_filename(name: str) -> str:
     """Make a Japanese/mixed string safe to use as a filename."""
     name = name.replace("・", "_")
     name = name.replace("＆", "and")
-    name = name.replace("　", "_")   # full-width space
+    name = name.replace("　", "_")
     name = name.replace("·", "_")
     name = unicodedata.normalize("NFKD", name)
     name = re.sub(r"[^\w\-_.]", "_", name)
     return name.strip("_")
+
+
+def export_slides_with_powerpoint(
+    pptx_path: str,
+    output_folder: str,
+    dpi: int,
+) -> list[tuple[int, str]]:
+    """
+    Use PowerPoint COM (Windows only) to export slides as PNG images.
+    Requires Microsoft PowerPoint to be installed.
+    """
+    import comtypes.client
+
+    pptx_basename = os.path.splitext(os.path.basename(pptx_path))[0]
+    safe_basename = sanitize_for_filename(pptx_basename)
+    abs_pptx_path = os.path.abspath(pptx_path)
+    abs_output_folder = os.path.abspath(output_folder)
+
+    results = []
+
+    powerpoint = comtypes.client.CreateObject("Powerpoint.Application")
+    powerpoint.Visible = 1
+
+    try:
+        presentation = powerpoint.Presentations.Open(
+            abs_pptx_path,
+            ReadOnly=True,
+            Untitled=False,
+            WithWindow=False,
+        )
+
+        for i, slide in enumerate(presentation.Slides, start=1):
+            image_filename = f"{safe_basename}_slide_{i:03d}.png"
+            image_path = os.path.join(abs_output_folder, image_filename)
+
+            # Export slide as PNG
+            slide.Export(image_path, "PNG")
+            results.append((i, image_path))
+
+        presentation.Close()
+
+    finally:
+        powerpoint.Quit()
+
+    return results
+
+
+def export_slides_as_placeholder(
+    pptx_path: str,
+    output_folder: str,
+    dpi: int,
+) -> list[tuple[int, str]]:
+    """
+    Fallback: create blank white images when PowerPoint is not available.
+    LLaVA will produce empty descriptions but pipeline won't crash.
+    """
+    pptx_basename = os.path.splitext(os.path.basename(pptx_path))[0]
+    safe_basename = sanitize_for_filename(pptx_basename)
+
+    prs = Presentation(pptx_path)
+    width_px  = int(prs.slide_width  / 914400 * dpi)
+    height_px = int(prs.slide_height / 914400 * dpi)
+
+    results = []
+    for slide_num in range(1, len(prs.slides) + 1):
+        image_filename = f"{safe_basename}_slide_{slide_num:03d}.png"
+        image_path = os.path.join(output_folder, image_filename)
+        img = Image.new("RGB", (width_px, height_px), color=(255, 255, 255))
+        img.save(image_path, format="PNG")
+        results.append((slide_num, image_path))
+
+    return results
 
 
 def export_slides_as_images(
@@ -24,39 +96,19 @@ def export_slides_as_images(
     dpi: int = SLIDE_EXPORT_DPI,
 ) -> list[tuple[int, str]]:
     """
-    Export each slide of a PPTX as a PNG image.
-    Returns list of (slide_number, image_path) tuples.
+    Main export function.
+    Tries PowerPoint COM first (Windows), falls back to placeholder images.
     """
     os.makedirs(output_folder, exist_ok=True)
 
-    pptx_basename = os.path.splitext(os.path.basename(pptx_path))[0]
-    safe_basename = sanitize_for_filename(pptx_basename)
-
-    prs = Presentation(pptx_path)
-    slide_width  = prs.slide_width
-    slide_height = prs.slide_height
-
-    # Convert EMU to pixels at target DPI
-    # 1 inch = 914400 EMU
-    width_px  = int(slide_width  / 914400 * dpi)
-    height_px = int(slide_height / 914400 * dpi)
-
-    results = []
-
-    for slide_num, slide in enumerate(prs.slides, start=1):
-        image_filename = f"{safe_basename}_slide_{slide_num:03d}.png"
-        image_path = os.path.join(output_folder, image_filename)
-
+    if sys.platform == "win32":
         try:
-            # python-pptx doesn't render to image natively —
-            # we create a blank white image as a placeholder.
-            # On the GPU machine with LibreOffice or comtypes this is replaced.
-            # For now this ensures the pipeline doesn't crash.
-            img = Image.new("RGB", (width_px, height_px), color=(255, 255, 255))
-            img.save(image_path, format="PNG")
-            results.append((slide_num, image_path))
+            import comtypes
+            return export_slides_with_powerpoint(pptx_path, output_folder, dpi)
         except Exception as e:
-            print(f"  ⚠️  Could not export slide {slide_num} of "
-                  f"{pptx_basename}: {e}")
-
-    return results
+            print(f"  ⚠️  PowerPoint COM failed ({e}), using placeholder images.")
+            return export_slides_as_placeholder(pptx_path, output_folder, dpi)
+    else:
+        # Linux/Mac — placeholder for now
+        # On Linux GPU machine we'll use LibreOffice
+        return export_slides_as_placeholder(pptx_path, output_folder, dpi)

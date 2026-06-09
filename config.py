@@ -22,8 +22,8 @@ CHROMA_COLLECTION_NAME = "onboarding_bilingual"
 OLLAMA_BASE_URL = "http://localhost:11434"
 
 # Model names for Ollama
-QWEN2_MODEL = "qwen2:7b"
-LLAVA_MODEL = "llava:7b"
+QWEN2_MODEL = "qwen2:latest"
+LLAVA_MODEL = "llava:latest"
 EMBEDDING_MODEL = "jeffh/intfloat-multilingual-e5-large:f16"
 
 # ============================================================================
