@@ -1,0 +1,20 @@
+# PowerPoint parsing
+python-pptx==0.6.21
+
+# Image processing
+Pillow==10.4.0
+
+# LangChain
+langchain==0.2.16
+langchain-community==0.2.16
+
+# Ollama client
+ollama==0.3.3
+
+# UI
+streamlit==1.35.0
+streamlit-authenticator==0.3.3
+
+# Utilities
+python-dotenv==1.0.1
+unicodedata2==15.1.0
