@@ -1,6 +1,6 @@
 import unicodedata
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_core import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_core.documents import Document
 from config import CHUNK_SIZE, CHUNK_OVERLAP
 
 

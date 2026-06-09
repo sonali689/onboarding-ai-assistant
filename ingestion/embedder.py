@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from langchain_chroma import Chroma
 from langchain_community.embeddings import OllamaEmbeddings
-from langchain_core import Document
+from langchain_core.documents import Document
 
 from config import (
     CHROMA_DB_DIR,

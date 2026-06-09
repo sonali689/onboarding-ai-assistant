@@ -171,7 +171,7 @@ def test_stage6(chunks):
     try:
         vectorstore = get_vectorstore()
         vectorstore.add_documents(chunks)
-        vectorstore.persist()
+        #vectorstore.persist()
 
         # Verify by doing a quick search
         results = vectorstore.similarity_search("test", k=1)
