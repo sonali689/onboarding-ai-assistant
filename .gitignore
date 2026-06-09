@@ -1,0 +1,41 @@
+# ── Virtual Environment ────────────────────────────────────────────────────────
+venv/
+
+# ── Data — PPTX source files (corporate data, never commit) ───────────────────
+data/training_manuals/001_TechCenter紹介/
+data/training_manuals/002_システム性能開発・乗員拘束・CAE/
+data/training_manuals/003_シートベルト/
+data/training_manuals/004_エアバッグ/
+data/training_manuals/005_ステアリングホイール/
+data/training_manuals/006_E＆M/
+data/training_manuals/007_法規・認証/
+data/training_manuals/008_アセスメント・他の製品/
+data/training_manuals/009_その他/
+
+# Catch-all for any pptx anywhere in data
+data/**/*.pptx
+data/**/*.ppt
+
+# ── Generated Folders (recreated at runtime) ───────────────────────────────────
+data/slide_images/
+chroma_db/
+
+# ── Python Cache ───────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ── Environment Variables ──────────────────────────────────────────────────────
+.env
+
+# ── OS Files ───────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── VS Code ────────────────────────────────────────────────────────────────────
+.vscode/
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
