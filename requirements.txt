@@ -1,6 +1,9 @@
 # PowerPoint parsing
 python-pptx>=1.0.0
 
+# Pdf
+PyMuPDF>=1.23.0
+
 # Image processing
 Pillow==10.4.0
 
