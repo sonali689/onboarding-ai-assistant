@@ -36,9 +36,41 @@ def get_vectorstore() -> Chroma:
     return vectorstore
 
 
+def already_ingested(vectorstore: Chroma, filename: str) -> bool:
+    """
+    Check if a file was already ingested into ChromaDB.
+    Compares by filename so re-running skips existing files.
+    """
+    try:
+        results = vectorstore.get(
+            where={"source": filename},
+            limit=1,
+        )
+        return len(results["ids"]) > 0
+    except Exception:
+        return False
+
+
+def get_ingested_files(vectorstore: Chroma) -> set[str]:
+    """
+    Return a set of all filenames already stored in ChromaDB.
+    Used to show a summary of what will be skipped before processing.
+    """
+    try:
+        results = vectorstore.get()
+        filenames = set()
+        for meta in results["metadatas"]:
+            if meta and "source" in meta:
+                filenames.add(meta["source"])
+        return filenames
+    except Exception:
+        return set()
+
+
 def run_pptx_ingestion(vectorstore: Chroma) -> tuple[int, list[str]]:
     """
     Process all PPTX files and store chunks in ChromaDB.
+    Skips files that are already ingested.
     Returns (total_chunks_added, failed_files).
     """
     print("\n" + "=" * 60)
@@ -50,12 +82,26 @@ def run_pptx_ingestion(vectorstore: Chroma) -> tuple[int, list[str]]:
         print("⚠️  No PPTX files found. Check PPTX_FOLDER in config.py")
         return 0, []
 
-    print(f"Files to process: {len(pptx_files)}")
+    # ── Checkpoint: find what's already in ChromaDB ───────────────────────────
+    ingested = get_ingested_files(vectorstore)
+    new_files = [
+        f for f in pptx_files
+        if os.path.basename(f) not in ingested
+    ]
+    skipped = len(pptx_files) - len(new_files)
+
+    print(f"Total PPTX files     : {len(pptx_files)}")
+    print(f"Already ingested     : {skipped} files (skipping)")
+    print(f"New files to process : {len(new_files)} files")
+
+    if not new_files:
+        print("✅ Nothing new to ingest.")
+        return 0, []
 
     total_chunks = 0
     failed_files = []
 
-    for pptx_path in pptx_files:
+    for pptx_path in new_files:
         filename  = os.path.basename(pptx_path)
         subfolder = os.path.basename(os.path.dirname(pptx_path))
         print(f"\n📂 {subfolder} / {filename}")
@@ -109,6 +155,7 @@ def run_pptx_ingestion(vectorstore: Chroma) -> tuple[int, list[str]]:
 def run_pdf_ingestion(vectorstore: Chroma) -> tuple[int, list[str]]:
     """
     Process all PDF files and store chunks in ChromaDB.
+    Skips files that are already ingested.
     Returns (total_chunks_added, failed_files).
     Skips silently if PyMuPDF is not installed.
     """
@@ -133,12 +180,26 @@ def run_pdf_ingestion(vectorstore: Chroma) -> tuple[int, list[str]]:
         print("⚠️  No PDF files found — skipping.")
         return 0, []
 
-    print(f"Files to process: {len(pdf_files)}")
+    # ── Checkpoint: find what's already in ChromaDB ───────────────────────────
+    ingested = get_ingested_files(vectorstore)
+    new_files = [
+        f for f in pdf_files
+        if os.path.basename(f) not in ingested
+    ]
+    skipped = len(pdf_files) - len(new_files)
+
+    print(f"Total PDF files      : {len(pdf_files)}")
+    print(f"Already ingested     : {skipped} files (skipping)")
+    print(f"New files to process : {len(new_files)} files")
+
+    if not new_files:
+        print("✅ Nothing new to ingest.")
+        return 0, []
 
     total_chunks = 0
     failed_files = []
 
-    for pdf_path in pdf_files:
+    for pdf_path in new_files:
         filename  = os.path.basename(pdf_path)
         subfolder = os.path.basename(os.path.dirname(pdf_path))
         print(f"\n📄 {subfolder} / {filename}")
@@ -169,8 +230,6 @@ def run_pdf_ingestion(vectorstore: Chroma) -> tuple[int, list[str]]:
                     vision_desc = describe_slide_image(image_path)
 
                 # Step 5 — Chunk
-                # page_data dict matches slide_data format exactly
-                # so chunk_slide_document works without any changes
                 chunks = chunk_slide_document(page_data, vision_desc)
                 all_chunks.extend(chunks)
 
@@ -195,12 +254,17 @@ def run_ingestion():
     """
     Main entry point — processes all PPTX and PDF files
     and stores everything in ChromaDB.
+    Re-running is safe — already ingested files are skipped automatically.
     """
     print("=" * 60)
     print("Starting bilingual ingestion pipeline")
     print("=" * 60)
 
     vectorstore = get_vectorstore()
+
+    # Show what's already in the database
+    existing = get_ingested_files(vectorstore)
+    print(f"Files already in ChromaDB: {len(existing)}")
 
     # ── PPTX ingestion ────────────────────────────────────────────────────────
     pptx_chunks, pptx_failed = run_pptx_ingestion(vectorstore)
@@ -217,14 +281,17 @@ def run_ingestion():
     print("=" * 60)
     print(f"  PPTX chunks stored : {pptx_chunks}")
     print(f"  PDF  chunks stored : {pdf_chunks}")
-    print(f"  Total chunks       : {total_chunks}")
+    print(f"  Total new chunks   : {total_chunks}")
 
     if all_failed:
         print(f"\n  ⚠️  Failed files ({len(all_failed)}):")
         for f in all_failed:
             print(f"     {f}")
     else:
-        print(f"\n  ✅ All files processed successfully.")
+        if total_chunks > 0:
+            print(f"\n  ✅ All new files processed successfully.")
+        else:
+            print(f"\n  ✅ No new files — database is up to date.")
 
     print("=" * 60)
 
