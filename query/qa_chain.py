@@ -7,18 +7,22 @@ from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 from langchain_community.llms import Ollama
 
-from query.prompt_templates import BILINGUAL_PROMPT
+from query.prompt_templates import BILINGUAL_PROMPT, GENERAL_KNOWLEDGE_PROMPT
 from query.retriever import get_retriever, retrieve_chunks
 from config import QWEN2_MODEL, OLLAMA_BASE_URL
 
-# Cached instances — built once, reused for every question
-_llm      = None
-_chain    = None
+# ── Cached instances ──────────────────────────────────────────────────────────
+_llm       = None
 _retriever = None
+
+# Threshold — how many chunks must be retrieved to trust company data
+MIN_RELEVANT_CHUNKS = 1
+
+# If answer contains this, it means company data didn't have it
+NOT_IN_CONTEXT_MARKER = "NOT_IN_CONTEXT"
 
 
 def get_llm() -> Ollama:
-    """Return cached Ollama LLM instance."""
     global _llm
     if _llm is None:
         _llm = Ollama(
@@ -29,15 +33,12 @@ def get_llm() -> Ollama:
 
 
 def format_docs(docs) -> str:
-    """
-    Format retrieved documents into a single context string.
-    Preserves all Japanese and English content exactly.
-    """
+    """Format retrieved documents into a single context string."""
     parts = []
     for doc in docs:
-        source     = doc.metadata.get("source", "")
-        slide_num  = doc.metadata.get("slide_number", "")
-        subfolder  = doc.metadata.get("subfolder", "")
+        source    = doc.metadata.get("source", "")
+        slide_num = doc.metadata.get("slide_number", "")
+        subfolder = doc.metadata.get("subfolder", "")
         parts.append(
             f"[Source: {source} | Slide {slide_num} | {subfolder}]\n"
             f"{doc.page_content}"
@@ -45,54 +46,109 @@ def format_docs(docs) -> str:
     return "\n\n---\n\n".join(parts)
 
 
-def build_chain():
+def is_relevant(docs, question: str) -> bool:
     """
-    Build and return the full RAG chain using LCEL.
-    Modern replacement for the deprecated RetrievalQA.
+    Decide if retrieved chunks are relevant enough to answer the question.
+    Uses a simple scoring approach:
+    - If no chunks retrieved → not relevant
+    - If chunks retrieved but content is very short → not relevant
+    - Otherwise → relevant, use company data
     """
-    global _chain, _retriever
-    if _chain is not None:
-        return _chain, _retriever
+    if not docs:
+        return False
 
-    llm       = get_llm()
-    retriever = get_retriever()
+    # Combine all retrieved content
+    combined = " ".join(doc.page_content for doc in docs).strip()
 
-    _chain = (
-        {
-            "context":  retriever | format_docs,
-            "question": RunnablePassthrough(),
-        }
-        | BILINGUAL_PROMPT
+    # If retrieved content is very sparse, fall back to general knowledge
+    if len(combined) < 100:
+        return False
+
+    return True
+
+
+def ask_with_company_data(question: str, docs) -> str:
+    """Run question against retrieved company data."""
+    llm     = get_llm()
+    context = format_docs(docs)
+
+    chain = (
+        BILINGUAL_PROMPT
         | llm
         | StrOutputParser()
     )
-    _retriever = retriever
-    return _chain, _retriever
+
+    return chain.invoke({
+        "context":  context,
+        "question": question,
+    })
+
+
+def ask_with_general_knowledge(question: str) -> str:
+    """Run question against Qwen2's general knowledge."""
+    llm = get_llm()
+
+    chain = (
+        GENERAL_KNOWLEDGE_PROMPT
+        | llm
+        | StrOutputParser()
+    )
+
+    return chain.invoke({"question": question})
 
 
 def ask(question: str) -> dict:
     """
-    Run a question through the full RAG pipeline.
+    Main entry point for the query pipeline.
+
+    Flow:
+    1. Retrieve relevant chunks from ChromaDB
+    2. Check if chunks actually answer the question
+    3a. If yes → answer from company data with citations
+    3b. If no  → answer from general knowledge, clearly labelled
 
     Returns:
         {
-            "answer":  str,
-            "sources": list of dicts with file, slide_number,
-                       subfolder, lang_hint
+            "answer":       str,
+            "sources":      list of source dicts,
+            "source_type":  "company_data" or "general_knowledge"
         }
     """
-    chain, retriever = build_chain()
+    # Step 1 — Retrieve chunks
+    docs = retrieve_chunks(question)
 
-    # Retrieve source docs separately so we can return them
-    source_docs = retrieve_chunks(question)
+    # Step 2 — Check relevance
+    if is_relevant(docs, question):
+        # Step 3a — Try answering from company data
+        raw_answer = ask_with_company_data(question, docs)
 
-    # Run the chain to get the answer
-    answer = chain.invoke(question)
+        # Step 3b — If model says NOT_IN_CONTEXT, fall back anyway
+        if NOT_IN_CONTEXT_MARKER in raw_answer:
+            answer      = ask_with_general_knowledge(question)
+            source_type = "general_knowledge"
+            sources     = []
+        else:
+            answer      = raw_answer
+            source_type = "company_data"
+            sources     = _build_sources(docs)
+    else:
+        # Step 3b — No relevant chunks, use general knowledge
+        answer      = ask_with_general_knowledge(question)
+        source_type = "general_knowledge"
+        sources     = []
 
-    # Build deduplicated sources list
+    return {
+        "answer":      answer,
+        "sources":     sources,
+        "source_type": source_type,
+    }
+
+
+def _build_sources(docs) -> list[dict]:
+    """Build deduplicated sources list from retrieved documents."""
     seen    = set()
     sources = []
-    for doc in source_docs:
+    for doc in docs:
         key = (
             doc.metadata.get("source", ""),
             doc.metadata.get("slide_number", ""),
@@ -105,8 +161,4 @@ def ask(question: str) -> dict:
                 "subfolder":    doc.metadata.get("subfolder", ""),
                 "lang_hint":    doc.metadata.get("lang_hint", ""),
             })
-
-    return {
-        "answer":  answer,
-        "sources": sources,
-    }
+    return sources
