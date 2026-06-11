@@ -39,3 +39,6 @@ desktop.ini
 
 # ── Logs ──────────────────────────────────────────────────────────────────────
 *.log
+
+ui/frontend/node_modules/
+ui/frontend/dist/
