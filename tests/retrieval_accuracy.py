@@ -25,6 +25,14 @@ TEST_CASES = [
         "question_lang":    "en",
         "description":      "EN question → should find airbag folder content",
     },
+
+    {
+        "question":         "Explain bag in belt concept to me. What exactly is it ?",
+        "expected_keyword": "エアバッグ",
+        "question_lang":    "en",
+        "description":      "EN question → should find airbag folder content",
+    },
+
     {
         "question":         "What does the seatbelt system do?",
         "expected_keyword": "シートベルト",
