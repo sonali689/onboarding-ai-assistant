@@ -8,15 +8,11 @@ export interface AskResponse {
 }
 
 export async function askQuestion(question: string): Promise<AskResponse> {
-  const response = await fetch('/ask', {
+  const res = await fetch('/ask', {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify({ question }),
   })
-
-  if (!response.ok) {
-    throw new Error(`Server error: ${response.status}`)
-  }
-
-  return response.json()
+  if (!res.ok) throw new Error(`Server error: ${res.status}`)
+  return res.json()
 }

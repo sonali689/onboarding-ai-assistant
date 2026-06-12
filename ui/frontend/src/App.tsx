@@ -1,177 +1,131 @@
 import { useState, useCallback, useEffect } from 'react'
-import Sidebar     from './components/Sidebar'
-import ChatWindow  from './components/ChatWindow'
-import InputBar    from './components/InputBar'
+import Sidebar    from './components/Sidebar'
+import ChatWindow from './components/ChatWindow'
+import InputBar   from './components/InputBar'
 import { askQuestion } from './api/chat'
-import type { Message as MessageType, ChatSession } from './types'
+import type { Message as Msg, ChatSession } from './types'
 
-function generateId() {
-  return Math.random().toString(36).slice(2)
-}
+const uid = () => Math.random().toString(36).slice(2)
 
-function createSession(): ChatSession {
-  return {
-    id:       generateId(),
-    title:    'New conversation',
-    messages: [],
-    date:     new Date(),
-  }
-}
+const newSession = (): ChatSession => ({
+  id: uid(), title: 'New conversation', messages: [], date: new Date(),
+})
 
 export default function App() {
-  const [sessions, setSessions]   = useState<ChatSession[]>([])
-  const [activeId, setActiveId]   = useState<string>('')
+  const [sessions,  setSessions]  = useState<ChatSession[]>([])
+  const [activeId,  setActiveId]  = useState('')
   const [isLoading, setIsLoading] = useState(false)
 
   useEffect(() => {
-    const session = createSession()
-    setSessions([session])
-    setActiveId(session.id)
+    const s = newSession()
+    setSessions([s])
+    setActiveId(s.id)
   }, [])
 
-  const activeSession = sessions.find(s => s.id === activeId)
-  const messages      = activeSession?.messages ?? []
+  const active   = sessions.find(s => s.id === activeId)
+  const messages = active?.messages ?? []
 
-  const updateSession = useCallback((
-    id: string,
-    updater: (s: ChatSession) => ChatSession
-  ) => {
-    setSessions(prev => prev.map(s => s.id === id ? updater(s) : s))
+  const patch = useCallback((id: string, fn: (s: ChatSession) => ChatSession) => {
+    setSessions(prev => prev.map(s => s.id === id ? fn(s) : s))
   }, [])
 
   const handleSend = async (question: string) => {
     if (!activeId || isLoading) return
+    setIsLoading(true)
 
-    const userMsg: MessageType = {
-      id:          generateId(),
-      role:        'user',
-      content:     question,
-      sources:     [],
-      source_type: null,
-      timestamp:   new Date(),
+    const userMsg: Msg = {
+      id: uid(), role: 'user', content: question,
+      sources: [], source_type: null, timestamp: new Date(),
+    }
+    const loadingMsg: Msg = {
+      id: uid(), role: 'assistant', content: '',
+      sources: [], source_type: null, timestamp: new Date(), loading: true,
     }
 
-    const loadingMsg: MessageType = {
-      id:          generateId(),
-      role:        'assistant',
-      content:     '',
-      sources:     [],
-      source_type: null,
-      timestamp:   new Date(),
-      loading:     true,
-    }
-
-    updateSession(activeId, s => ({
+    patch(activeId, s => ({
       ...s,
-      title:    s.messages.length === 0
-                  ? question.slice(0, 42)
-                  : s.title,
+      title:    s.messages.length === 0 ? question.slice(0, 44) : s.title,
       messages: [...s.messages, userMsg, loadingMsg],
     }))
 
-    setIsLoading(true)
-
     try {
       const data = await askQuestion(question)
-
-      const assistantMsg: MessageType = {
-        id:          generateId(),
-        role:        'assistant',
-        content:     data.answer,
-        sources:     data.sources,
-        source_type: data.source_type,
-        timestamp:   new Date(),
-        loading:     false,
+      const reply: Msg = {
+        id: uid(), role: 'assistant', content: data.answer,
+        sources: data.sources, source_type: data.source_type,
+        timestamp: new Date(), loading: false,
       }
-
-      updateSession(activeId, s => ({
+      patch(activeId, s => ({
         ...s,
-        messages: [
-          ...s.messages.filter(m => !m.loading),
-          assistantMsg,
-        ],
+        messages: [...s.messages.filter(m => !m.loading), reply],
       }))
-
     } catch {
-      const errorMsg: MessageType = {
-        id:          generateId(),
-        role:        'assistant',
-        content:     'Sorry, something went wrong. Please try again. | エラーが発生しました。',
-        sources:     [],
-        source_type: null,
-        timestamp:   new Date(),
-        loading:     false,
+      const err: Msg = {
+        id: uid(), role: 'assistant',
+        content: 'Sorry, something went wrong. Please try again.',
+        sources: [], source_type: null,
+        timestamp: new Date(), loading: false,
       }
-      updateSession(activeId, s => ({
+      patch(activeId, s => ({
         ...s,
-        messages: [
-          ...s.messages.filter(m => !m.loading),
-          errorMsg,
-        ],
+        messages: [...s.messages.filter(m => !m.loading), err],
       }))
     }
 
     setIsLoading(false)
   }
 
-  const handleNewChat = () => {
-    const session = createSession()
-    setSessions(prev => [session, ...prev])
-    setActiveId(session.id)
+  const handleNew = () => {
+    const s = newSession()
+    setSessions(prev => [s, ...prev])
+    setActiveId(s.id)
   }
 
   return (
-    <div className="flex h-screen bg-white overflow-hidden">
+    <div className="flex h-screen overflow-hidden">
 
-      {/* Sidebar */}
       <Sidebar
         sessions={sessions}
         activeId={activeId}
-        onNewChat={handleNewChat}
+        onNewChat={handleNew}
         onSelectSession={setActiveId}
       />
 
-      {/* Main area */}
       <div className="flex flex-col flex-1 overflow-hidden">
 
         {/* Top bar */}
-        <div className="h-14 border-b border-autoliv-border
-                        flex items-center justify-between
-                        px-6 bg-white flex-shrink-0 shadow-sm">
+        <div className="h-14 bg-white px-6 flex items-center
+                        justify-between shrink-0"
+             style={{ borderBottom: '1px solid #E5E7EB',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
           <div>
-            <h1 className="text-sm font-semibold text-autoliv-charcoal">
-              {activeSession?.title ?? 'New conversation'}
+            <h1 className="text-sm font-semibold text-gray-900 leading-tight">
+              {active?.title ?? 'New conversation'}
             </h1>
-            <p className="text-xs text-autoliv-blue">
+            <p className="text-xs mt-0.5" style={{ color: '#003DA5' }}>
               Ask in English or Japanese | 日本語または英語で質問
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full transition-colors
-              ${isLoading
-                ? 'bg-amber-400 animate-pulse'
-                : 'bg-green-400 animate-pulse'
-              }`}
+            <div className={`w-2 h-2 rounded-full
+              ${isLoading ? 'bg-amber-400' : 'bg-green-400'}`}
+                 style={{ boxShadow: isLoading
+                   ? '0 0 6px rgba(251,191,36,0.6)'
+                   : '0 0 6px rgba(74,222,128,0.6)' }}
             />
             <span className="text-xs text-gray-400">
-              {isLoading ? 'Thinking... | 考え中...' : 'Ready'}
+              {isLoading ? 'Thinking...' : 'Ready'}
             </span>
           </div>
         </div>
 
-        {/* Chat window */}
         <ChatWindow
           messages={messages}
           isLoading={isLoading}
           onSuggestion={handleSend}
         />
 
-        {/* Input */}
-        <InputBar
-          onSend={handleSend}
-          disabled={isLoading}
-        />
-
+        <InputBar onSend={handleSend} disabled={isLoading} />
       </div>
     </div>
   )
