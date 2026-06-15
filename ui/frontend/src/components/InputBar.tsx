@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
-import { ArrowUp } from 'lucide-react'
+import { ArrowUp }          from 'lucide-react'
+import { useLang }          from '../contexts/LanguageContext'
 
 interface Props {
   onSend:   (text: string) => void
@@ -8,9 +9,9 @@ interface Props {
 
 export default function InputBar({ onSend, disabled }: Props) {
   const [text, setText] = useState('')
-  const ref = useRef<HTMLTextAreaElement>(null)
-
-  const canSend = text.trim().length > 0 && !disabled
+  const ref             = useRef<HTMLTextAreaElement>(null)
+  const { t }           = useLang()
+  const canSend         = text.trim().length > 0 && !disabled
 
   const send = () => {
     if (!canSend) return
@@ -26,7 +27,8 @@ export default function InputBar({ onSend, disabled }: Props) {
   const onInput = () => {
     if (!ref.current) return
     ref.current.style.height = 'auto'
-    ref.current.style.height = Math.min(ref.current.scrollHeight, 140) + 'px'
+    ref.current.style.height =
+      Math.min(ref.current.scrollHeight, 140) + 'px'
   }
 
   return (
@@ -34,13 +36,10 @@ export default function InputBar({ onSend, disabled }: Props) {
          style={{ borderTop: '1px solid #E5E7EB' }}>
       <div className="max-w-3xl mx-auto">
 
-        {/* Input row */}
-        <div className="flex items-end gap-3 bg-white rounded-2xl px-4 py-3
-                        transition-all duration-150"
-             style={{ border: '1.5px solid #E5E7EB',
-                      boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}
-             onFocus={() => {}}
-        >
+        <div className="flex items-end gap-3 bg-white rounded-2xl
+                        px-4 py-3 transition-all duration-150"
+             style={{ border:     '1.5px solid #E5E7EB',
+                      boxShadow:  '0 1px 4px rgba(0,0,0,0.04)' }}>
           <textarea
             ref={ref}
             value={text}
@@ -48,13 +47,12 @@ export default function InputBar({ onSend, disabled }: Props) {
             onKeyDown={onKey}
             disabled={disabled}
             rows={1}
-            placeholder="Ask in English or Japanese... | 日本語または英語で質問..."
+            placeholder={t.placeholder}
             className="flex-1 resize-none outline-none text-sm
                        text-gray-800 placeholder-gray-400 leading-relaxed
                        py-0.5 bg-transparent max-h-36 font-sans"
           />
 
-          {/* Send button */}
           <button
             onClick={send}
             disabled={!canSend}
@@ -69,8 +67,9 @@ export default function InputBar({ onSend, disabled }: Props) {
           </button>
         </div>
 
-        <p className="text-center text-xs mt-2.5" style={{ color: '#9CA3AF' }}>
-          Internal use only · Data stays on Autoliv servers · 社内利用限定
+        <p className="text-center text-xs mt-2.5"
+           style={{ color: '#9CA3AF' }}>
+          {t.disclaimer}
         </p>
       </div>
     </div>

@@ -22,7 +22,7 @@ CHROMA_COLLECTION_NAME = "onboarding_bilingual"
 OLLAMA_BASE_URL = "http://localhost:11434"
 
 # Model names for Ollama
-QWEN2_MODEL = "qwen2:latest"
+QWEN2_MODEL = "llama3.1:8b"
 LLAVA_MODEL = "llava:latest"
 EMBEDDING_MODEL = "jeffh/intfloat-multilingual-e5-large:f16"
 
@@ -35,7 +35,7 @@ CHUNK_OVERLAP = 50
 # ============================================================================
 # RETRIEVAL
 # ============================================================================
-TOP_K = 5
+TOP_K = 15
 
 # ============================================================================
 # SLIDE EXPORT

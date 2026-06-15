@@ -1,4 +1,5 @@
-import SourceCard from './SourceCard'
+import ReactMarkdown from 'react-markdown'
+import SourceCard    from './SourceCard'
 import type { Message as MessageType } from '../types'
 
 interface Props { message: MessageType }
@@ -43,29 +44,95 @@ export default function Message({ message }: Props) {
       </div>
 
       {/* Content */}
-      <div className={`flex flex-col gap-1 max-w-[72%]
+      <div className={`flex flex-col gap-1 max-w-[75%]
                        ${isUser ? 'items-end' : 'items-start'}`}>
 
         {/* Bubble */}
-        <div className="px-4 py-3 rounded-2xl text-sm leading-relaxed"
-             style={isUser ? {
-               background:       '#003DA5',
-               color:            '#FFFFFF',
-               borderBottomRightRadius: '4px',
-               boxShadow:        '0 1px 3px rgba(0,61,165,0.3)',
-             } : {
-               background:       '#FFFFFF',
-               color:            '#111827',
-               borderBottomLeftRadius: '4px',
-               border:           '1px solid #E5E7EB',
-               boxShadow:        '0 1px 4px rgba(0,0,0,0.06)',
-             }}>
-          {message.content.split('\n').map((line, i, arr) => (
-            <span key={i}>
-              {line}
-              {i < arr.length - 1 && <br />}
-            </span>
-          ))}
+        <div
+          className="px-4 py-3 rounded-2xl text-sm leading-relaxed"
+          style={isUser ? {
+            background:            '#003DA5',
+            color:                 '#FFFFFF',
+            borderBottomRightRadius: '4px',
+            boxShadow:             '0 1px 3px rgba(0,61,165,0.3)',
+          } : {
+            background:           '#FFFFFF',
+            color:                '#111827',
+            borderBottomLeftRadius: '4px',
+            border:               '1px solid #E5E7EB',
+            boxShadow:            '0 1px 4px rgba(0,0,0,0.06)',
+          }}
+        >
+          {isUser ? (
+            /* User messages — plain text */
+            <span>{message.content}</span>
+          ) : (
+            /* Assistant messages — render markdown */
+            <div className="prose prose-sm max-w-none"
+                 style={{ color: 'inherit' }}>
+              <ReactMarkdown
+                components={{
+                  /* Headers */
+                  h2: ({ children }) => (
+                    <h2 style={{
+                      fontSize:     '13px',
+                      fontWeight:   700,
+                      color:        '#003DA5',
+                      marginTop:    '12px',
+                      marginBottom: '6px',
+                      paddingBottom:'4px',
+                      borderBottom: '1px solid #E5E7EB',
+                    }}>
+                      {children}
+                    </h2>
+                  ),
+                  /* Horizontal rule — separator between sections */
+                  hr: () => (
+                    <hr style={{
+                      border:    'none',
+                      borderTop: '1px solid #E5E7EB',
+                      margin:    '12px 0',
+                    }} />
+                  ),
+                  /* Paragraphs */
+                  p: ({ children }) => (
+                    <p style={{ marginBottom: '8px', lineHeight: '1.6' }}>
+                      {children}
+                    </p>
+                  ),
+                  /* Bold */
+                  strong: ({ children }) => (
+                    <strong style={{
+                      fontWeight: 600,
+                      color:      '#003DA5',
+                    }}>
+                      {children}
+                    </strong>
+                  ),
+                  /* Bullet lists */
+                  ul: ({ children }) => (
+                    <ul style={{
+                      paddingLeft:  '16px',
+                      marginBottom: '8px',
+                      listStyle:    'disc',
+                    }}>
+                      {children}
+                    </ul>
+                  ),
+                  li: ({ children }) => (
+                    <li style={{
+                      marginBottom: '4px',
+                      lineHeight:   '1.5',
+                    }}>
+                      {children}
+                    </li>
+                  ),
+                }}
+              >
+                {message.content}
+              </ReactMarkdown>
+            </div>
+          )}
         </div>
 
         {/* Sources */}
@@ -81,7 +148,7 @@ export default function Message({ message }: Props) {
         {/* Timestamp */}
         <p className="text-xs px-1" style={{ color: '#9CA3AF' }}>
           {message.timestamp.toLocaleTimeString([], {
-            hour: '2-digit', minute: '2-digit'
+            hour: '2-digit', minute: '2-digit',
           })}
         </p>
       </div>
