@@ -59,11 +59,11 @@ def run_test(
             # English answer should have Latin chars and minimal Japanese
             passed = has_english(answer) and not has_japanese(answer)
 
-        print(f"  Result   : {'✅ PASS' if passed else '❌ FAIL'}")
+        print(f"  Result   : {' PASS' if passed else ' FAIL'}")
         return passed
 
     except Exception as e:
-        print(f"  ❌ ERROR  : {e}")
+        print(f"   ERROR  : {e}")
         print(f"     Check  : Is Ollama running? Run: ollama serve")
         print(f"     Check  : Is {QWEN2_MODEL} pulled? Run: ollama list")
         return False
@@ -116,12 +116,12 @@ def main():
     print("=" * 60)
 
     if passed_count == total:
-        print("✅ All tests passed.")
+        print("  All tests passed.")
         print("   Safe to proceed to Phase 2 — run ingestion pipeline.")
         print("   Command: python ingestion/embedder.py")
     else:
         failed = [i + 1 for i, r in enumerate(results) if not r]
-        print(f"⚠️  Tests {failed} failed.")
+        print(f"  Tests {failed} failed.")
         print("   Action: Strengthen BILINGUAL_PROMPT in")
         print("           query/prompt_templates.py")
         print("   Do NOT proceed to ingestion until all 4 pass.")

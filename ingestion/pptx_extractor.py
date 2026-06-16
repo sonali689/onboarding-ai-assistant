@@ -26,7 +26,7 @@ def extract_slide_data(pptx_path: str) -> list[dict]:
     try:
         prs = Presentation(pptx_path)
     except Exception as e:
-        print(f"  ⚠️  Could not open {filename}: {e}")
+        print(f"   Could not open {filename}: {e}")
         return []
 
     for slide_num, slide in enumerate(prs.slides, start=1):

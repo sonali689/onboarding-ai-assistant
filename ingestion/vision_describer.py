@@ -38,5 +38,5 @@ def describe_slide_image(image_path: str) -> str:
         return response["message"]["content"]
 
     except Exception as e:
-        print(f"  ⚠️  LLaVA failed on {image_path}: {e}")
+        print(f"   LLaVA failed on {image_path}: {e}")
         return ""

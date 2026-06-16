@@ -23,7 +23,7 @@ export const strings = {
       earlyMorning: ["Early bird! ",           "Rise and shine "],
       morning:      ["Good morning! ",          "Morning! Let's get started ", "Happy {day}! "],
       afternoon:    ["Good afternoon! ",         "Welcome back ",               "Hey there! "],
-      evening:      ["Good evening! ",           "Evening check-in ",           "Almost done for the day? 🌇"],
+      evening:      ["Good evening! ",           "Evening check-in ",           "Almost done for the day? "],
       night:        ["Hello, night owl! ",       "Late night learning ",        "Still at it! "],
     },
   },

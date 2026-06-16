@@ -106,7 +106,7 @@ def export_slides_as_images(
             import comtypes
             return export_slides_with_powerpoint(pptx_path, output_folder, dpi)
         except Exception as e:
-            print(f"  ⚠️  PowerPoint COM failed ({e}), using placeholder images.")
+            print(f"   PowerPoint COM failed ({e}), using placeholder images.")
             return export_slides_as_placeholder(pptx_path, output_folder, dpi)
     else:
         # Linux/Mac — placeholder for now

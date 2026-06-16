@@ -79,7 +79,7 @@ def run_pptx_ingestion(vectorstore: Chroma) -> tuple[int, list[str]]:
 
     pptx_files = scan_pptx_files()
     if not pptx_files:
-        print("⚠️  No PPTX files found. Check PPTX_FOLDER in config.py")
+        print("No PPTX files found. Check PPTX_FOLDER in config.py")
         return 0, []
 
     # ── Checkpoint: find what's already in ChromaDB ───────────────────────────
@@ -95,7 +95,7 @@ def run_pptx_ingestion(vectorstore: Chroma) -> tuple[int, list[str]]:
     print(f"New files to process : {len(new_files)} files")
 
     if not new_files:
-        print("✅ Nothing new to ingest.")
+        print(" Nothing new to ingest.")
         return 0, []
 
     total_chunks = 0
@@ -104,13 +104,13 @@ def run_pptx_ingestion(vectorstore: Chroma) -> tuple[int, list[str]]:
     for pptx_path in new_files:
         filename  = os.path.basename(pptx_path)
         subfolder = os.path.basename(os.path.dirname(pptx_path))
-        print(f"\n📂 {subfolder} / {filename}")
+        print(f"\n {subfolder} / {filename}")
 
         try:
             # Step 1 — Extract text from slides
             slides = extract_slide_data(pptx_path)
             if not slides:
-                print(f"  ⚠️  No slides extracted, skipping.")
+                print(f"    No slides extracted, skipping.")
                 failed_files.append(filename)
                 continue
             print(f"  Slides found: {len(slides)}")
@@ -139,13 +139,13 @@ def run_pptx_ingestion(vectorstore: Chroma) -> tuple[int, list[str]]:
             if all_chunks:
                 vectorstore.add_documents(all_chunks)
                 total_chunks += len(all_chunks)
-                print(f"  ✅ Chunks created and stored: {len(all_chunks)}")
+                print(f"   Chunks created and stored: {len(all_chunks)}")
             else:
-                print(f"  ⚠️  No chunks generated for this file.")
+                print(f"    No chunks generated for this file.")
                 failed_files.append(filename)
 
         except Exception as e:
-            print(f"  ❌ Error processing {filename}: {e}")
+            print(f"   Error processing {filename}: {e}")
             failed_files.append(filename)
             continue
 
@@ -171,13 +171,13 @@ def run_pdf_ingestion(vectorstore: Chroma) -> tuple[int, list[str]]:
             export_pdf_pages_as_images,
         )
     except ImportError:
-        print("⚠️  PyMuPDF not installed — skipping PDF ingestion.")
+        print("  PyMuPDF not installed — skipping PDF ingestion.")
         print("   To enable: pip install PyMuPDF")
         return 0, []
 
     pdf_files = scan_pdf_files(PPTX_FOLDER)
     if not pdf_files:
-        print("⚠️  No PDF files found — skipping.")
+        print("  No PDF files found — skipping.")
         return 0, []
 
     # ── Checkpoint: find what's already in ChromaDB ───────────────────────────
@@ -193,7 +193,7 @@ def run_pdf_ingestion(vectorstore: Chroma) -> tuple[int, list[str]]:
     print(f"New files to process : {len(new_files)} files")
 
     if not new_files:
-        print("✅ Nothing new to ingest.")
+        print(" Nothing new to ingest.")
         return 0, []
 
     total_chunks = 0
@@ -202,13 +202,13 @@ def run_pdf_ingestion(vectorstore: Chroma) -> tuple[int, list[str]]:
     for pdf_path in new_files:
         filename  = os.path.basename(pdf_path)
         subfolder = os.path.basename(os.path.dirname(pdf_path))
-        print(f"\n📄 {subfolder} / {filename}")
+        print(f"\n {subfolder} / {filename}")
 
         try:
             # Step 1 — Extract text from pages
             pages = extract_pdf_slide_data(pdf_path)
             if not pages:
-                print(f"  ⚠️  No pages extracted, skipping.")
+                print(f"    No pages extracted, skipping.")
                 failed_files.append(filename)
                 continue
             print(f"  Pages found: {len(pages)}")
@@ -237,13 +237,13 @@ def run_pdf_ingestion(vectorstore: Chroma) -> tuple[int, list[str]]:
             if all_chunks:
                 vectorstore.add_documents(all_chunks)
                 total_chunks += len(all_chunks)
-                print(f"  ✅ Chunks created and stored: {len(all_chunks)}")
+                print(f"   Chunks created and stored: {len(all_chunks)}")
             else:
-                print(f"  ⚠️  No chunks generated for this file.")
+                print(f"    No chunks generated for this file.")
                 failed_files.append(filename)
 
         except Exception as e:
-            print(f"  ❌ Error processing {filename}: {e}")
+            print(f"   Error processing {filename}: {e}")
             failed_files.append(filename)
             continue
 
@@ -284,14 +284,14 @@ def run_ingestion():
     print(f"  Total new chunks   : {total_chunks}")
 
     if all_failed:
-        print(f"\n  ⚠️  Failed files ({len(all_failed)}):")
+        print(f"\n    Failed files ({len(all_failed)}):")
         for f in all_failed:
             print(f"     {f}")
     else:
         if total_chunks > 0:
-            print(f"\n  ✅ All new files processed successfully.")
+            print(f"\n   All new files processed successfully.")
         else:
-            print(f"\n  ✅ No new files — database is up to date.")
+            print(f"\n   No new files — database is up to date.")
 
     print("=" * 60)
 

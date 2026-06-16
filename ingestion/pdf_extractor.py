@@ -33,7 +33,7 @@ def extract_pdf_slide_data(pdf_path: str) -> list[dict]:
     try:
         doc = fitz.open(pdf_path)
     except Exception as e:
-        print(f"  ⚠️  Could not open {filename}: {e}")
+        print(f"   Could not open {filename}: {e}")
         return []
 
     for page_num in range(len(doc)):
@@ -91,6 +91,6 @@ def export_pdf_pages_as_images(
         doc.close()
 
     except Exception as e:
-        print(f"  ⚠️  Could not export pages from {pdf_path}: {e}")
+        print(f"   Could not export pages from {pdf_path}: {e}")
 
     return results

@@ -25,11 +25,11 @@ def test_stage1():
     files = scan_pptx_files()
 
     if not files:
-        print("❌ No PPTX files found.")
+        print(" No PPTX files found.")
         print(f"   Check that your files are inside: {PPTX_FOLDER}")
         return None
 
-    print(f"✅ Found {len(files)} PPTX files\n")
+    print(f" Found {len(files)} PPTX files\n")
     for f in files[:5]:   # show first 5 only
         print(f"   {f}")
     if len(files) > 5:
@@ -51,10 +51,10 @@ def test_stage2(pptx_files: list):
     slides = extract_slide_data(test_file)
 
     if not slides:
-        print("❌ No slides extracted.")
+        print(" No slides extracted.")
         return None
 
-    print(f"✅ Extracted {len(slides)} slides\n")
+    print(f" Extracted {len(slides)} slides\n")
 
     # Show first 3 slides
     for slide in slides[:3]:
@@ -79,14 +79,14 @@ def test_stage3(pptx_files: list):
     slide_images = export_slides_as_images(test_file)
 
     if not slide_images:
-        print("❌ No images exported.")
+        print(" No images exported.")
         return None
 
-    print(f"✅ Exported {len(slide_images)} images")
+    print(f" Exported {len(slide_images)} images")
     for num, path in slide_images[:3]:
         exists = os.path.exists(path)
         size   = os.path.getsize(path) if exists else 0
-        status = "✅" if exists and size > 1000 else "⚠️  (may be blank placeholder)"
+        status = "" if exists and size > 1000 else "⚠️  (may be blank placeholder)"
         print(f"  Slide {num}: {os.path.basename(path)} "
               f"({size} bytes) {status}")
 
@@ -101,7 +101,7 @@ def test_stage4(slide_images: list):
     from ingestion.vision_describer import describe_slide_image
 
     if not slide_images:
-        print("⏭️  Skipping — no images from Stage 3.")
+        print("⏭  Skipping — no images from Stage 3.")
         return None
 
     first_slide_num, first_image_path = slide_images[0]
@@ -111,12 +111,12 @@ def test_stage4(slide_images: list):
     description = describe_slide_image(first_image_path)
 
     if not description:
-        print("❌ LLaVA returned empty description.")
+        print(" LLaVA returned empty description.")
         print("   Check Ollama is running: ollama serve")
         print("   Check LLaVA is pulled:   ollama list")
         return None
 
-    print(f"✅ LLaVA description received ({len(description)} chars)\n")
+    print(f" LLaVA description received ({len(description)} chars)\n")
     print("Preview:")
     print(description[:400])
     print("...")
@@ -132,7 +132,7 @@ def test_stage5(slides: list, vision_description: str):
     from ingestion.chunker import chunk_slide_document
 
     if not slides:
-        print("⏭️  Skipping — no slides from Stage 2.")
+        print("⏭  Skipping — no slides from Stage 2.")
         return None
 
     vision_desc = vision_description or ""
@@ -142,7 +142,7 @@ def test_stage5(slides: list, vision_description: str):
         print("❌ No chunks produced.")
         return None
 
-    print(f"✅ Produced {len(chunks)} chunks from slide 1\n")
+    print(f"Produced {len(chunks)} chunks from slide 1\n")
     for i, chunk in enumerate(chunks, start=1):
         print(f"  Chunk {i}:")
         print(f"    lang_hint:    {chunk.metadata['lang_hint']}")
@@ -162,7 +162,7 @@ def test_stage6(chunks):
     from ingestion.embedder import get_vectorstore
 
     if not chunks:
-        print("⏭️  Skipping — no chunks from Stage 5.")
+        print("⏭  Skipping — no chunks from Stage 5.")
         return False
 
     print("Connecting to ChromaDB and embedding...")
@@ -175,12 +175,12 @@ def test_stage6(chunks):
 
         # Verify by doing a quick search
         results = vectorstore.similarity_search("test", k=1)
-        print(f"✅ Chunks stored in ChromaDB successfully")
+        print(f" Chunks stored in ChromaDB successfully")
         print(f"   Verification search returned {len(results)} result(s)")
         return True
 
     except Exception as e:
-        print(f"❌ ChromaDB error: {e}")
+        print(f" ChromaDB error: {e}")
         return False
 
 
@@ -188,7 +188,7 @@ def test_stage6(chunks):
 # MAIN — Run all stages
 # ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    print("\n🚀 Ingestion Pipeline — Staged Test")
+    print("\n Ingestion Pipeline — Staged Test")
     print("Each stage tests one component independently.\n")
 
     # Stage 1
@@ -224,14 +224,14 @@ if __name__ == "__main__":
 
     all_passed = True
     for stage, passed in stages.items():
-        icon = "✅" if passed else "❌"
+        icon = "" if passed else ""
         print(f"  {icon}  {stage}")
         if not passed:
             all_passed = False
 
     print()
     if all_passed:
-        print("✅ All stages passed — safe to run full ingestion.")
+        print(" All stages passed — safe to run full ingestion.")
         print("   Run: python ingestion/embedder.py")
     else:
-        print("⚠️  Fix the failing stages above before running full ingestion.")
+        print("  Fix the failing stages above before running full ingestion.")
