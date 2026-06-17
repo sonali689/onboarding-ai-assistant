@@ -7,11 +7,19 @@ export interface AskResponse {
   status:      'ok' | 'error'
 }
 
-export async function askQuestion(question: string): Promise<AskResponse> {
+export interface HistoryItem {
+  role:    'user' | 'assistant'
+  content: string
+}
+
+export async function askQuestion(
+  question: string,
+  history: HistoryItem[] = [],
+): Promise<AskResponse> {
   const res = await fetch('/ask', {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ question }),
+    body:    JSON.stringify({ question, history }),
   })
   if (!res.ok) throw new Error(`Server error: ${res.status}`)
   return res.json()
