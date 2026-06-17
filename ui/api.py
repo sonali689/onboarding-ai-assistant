@@ -43,11 +43,15 @@ def sanitize_for_lookup(name: str) -> str:
 
 # ── RAG endpoint ───────────────────────────────────────────────────────────────
 
+class QuestionRequest(BaseModel):
+    question: str
+    history:  list[dict] | None = None   # [{"role": "user"|"assistant", "content": str}]
+
+
 @app.post("/ask")
 async def ask_question(request: QuestionRequest):
-    """Run a question through the RAG pipeline."""
     try:
-        result = ask(request.question)
+        result = ask(request.question, request.history)
         return JSONResponse({
             "answer":      result["answer"],
             "sources":     result["sources"],
