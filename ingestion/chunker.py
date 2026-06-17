@@ -23,7 +23,6 @@ def detect_language_hint(text: str) -> str:
         return "ja"
     return "en"
 
-
 def chunk_slide_document(
     slide_data: dict,
     vision_description: str,
