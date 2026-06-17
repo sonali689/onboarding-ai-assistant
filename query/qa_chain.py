@@ -7,14 +7,18 @@ from langchain_community.llms      import Ollama
 
 from query.retriever import retrieve_chunks
 from query.prompt_templates import (
+    CONDENSE_QUESTION_PROMPT,
+    TRANSLATE_QUESTION_TO_ENGLISH_PROMPT,
     GENERAL_ANSWER_PROMPT,
     AUTOLIV_CONTEXT_PROMPT,
-    TRANSLATE_QUESTION_TO_ENGLISH_PROMPT,
     TRANSLATE_ANSWER_TO_JAPANESE_PROMPT,
 )
 from config import QWEN2_MODEL, OLLAMA_BASE_URL
 
 _llm = None
+
+MAX_HISTORY_MESSAGES   = 6     # last 3 exchanges
+MAX_HISTORY_CHARS_EACH = 400   # trim long assistant answers
 
 
 # ── LLM ───────────────────────────────────────────────────────────────────────
@@ -44,20 +48,58 @@ def detect_language(text: str) -> str:
     return 'en'
 
 
-# ── Translation ────────────────────────────────────────────────────────────────
+# ── History formatting ─────────────────────────────────────────────────────────
+
+def format_history(history: list[dict]) -> str:
+    """
+    Format recent conversation turns into plain text for the condense prompt.
+    Expects history as list of {"role": "user"|"assistant", "content": str}.
+    """
+    if not history:
+        return ""
+
+    recent = history[-MAX_HISTORY_MESSAGES:]
+    lines  = []
+    for msg in recent:
+        role    = "User" if msg.get("role") == "user" else "Assistant"
+        content = msg.get("content", "")[:MAX_HISTORY_CHARS_EACH]
+        lines.append(f"{role}: {content}")
+    return "\n".join(lines)
+
+
+# ── Translation / question resolution ──────────────────────────────────────────
 
 def translate_to_english(text: str) -> str:
-    """Translate Japanese question to English for processing."""
     llm   = get_llm()
     chain = TRANSLATE_QUESTION_TO_ENGLISH_PROMPT | llm | StrOutputParser()
     return chain.invoke({"text": text}).strip()
 
 
+def resolve_question(question: str, history: list[dict]) -> str:
+    """
+    Turn the latest message into a self-contained English question.
+    Uses conversation history to resolve pronouns/follow-ups
+    (e.g. "what type does Autoliv use" -> "what type of bag-in-belt
+    does Autoliv use" if bag-in-belt was the previous topic).
+    Falls back to plain translation if there's no history.
+    """
+    lang = detect_language(question)
+
+    if history:
+        llm   = get_llm()
+        chain = CONDENSE_QUESTION_PROMPT | llm | StrOutputParser()
+        return chain.invoke({
+            "history":  format_history(history),
+            "question": question,
+        }).strip()
+
+    if lang == 'ja':
+        return translate_to_english(question)
+
+    return question
+
+
 def translate_to_japanese(text: str) -> str:
-    """
-    Translate full English response to Japanese.
-    Preserves tone, formatting, and citations exactly.
-    """
     llm   = get_llm()
     chain = TRANSLATE_ANSWER_TO_JAPANESE_PROMPT | llm | StrOutputParser()
     return chain.invoke({"text": text}).strip()
@@ -87,10 +129,6 @@ def is_relevant(docs) -> bool:
 # ── Part 1 — General knowledge ─────────────────────────────────────────────────
 
 def get_general_answer(question: str) -> str:
-    """
-    Natural-language answer from LLM training knowledge.
-    No database involved. Always high quality and language-independent.
-    """
     llm   = get_llm()
     chain = GENERAL_ANSWER_PROMPT | llm | StrOutputParser()
     return chain.invoke({"question": question}).strip()
@@ -99,10 +137,6 @@ def get_general_answer(question: str) -> str:
 # ── Part 2 — Autoliv-specific context ──────────────────────────────────────────
 
 def get_autoliv_context(question: str, docs) -> str | None:
-    """
-    Write a natural explanation of what Autoliv's training materials
-    say about the topic. Returns None if nothing meaningful found.
-    """
     llm     = get_llm()
     context = format_docs(docs)
     chain   = AUTOLIV_CONTEXT_PROMPT | llm | StrOutputParser()
@@ -139,40 +173,33 @@ def build_sources(docs) -> list[dict]:
 
 # ── Main pipeline ──────────────────────────────────────────────────────────────
 
-def ask(question: str) -> dict:
+def ask(question: str, history: list[dict] | None = None) -> dict:
     """
-    Two-part response pipeline:
+    Conversational two-part response pipeline.
 
-    Part 1 — General knowledge answer from LLM training data.
-              Always high quality. Never depends on database.
-              Written as natural prose explaining what it is,
-              how it works, and why it matters.
-
-    Part 2 — Autoliv-specific context from ChromaDB.
-              Written as a natural explanation of how Autoliv
-              specifically approaches the topic, with citations
-              woven into the sentences. Only shown when the
-              database has genuinely relevant content.
-
-    Both parts generated in English first.
-    Full response translated at the end if question was Japanese.
+    1. Resolve the latest message into a standalone English question,
+       using conversation history to handle follow-ups and pronouns.
+    2. Generate a natural-language general explanation (no database).
+    3. Retrieve relevant chunks and write a natural Autoliv-specific
+       explanation (only if the database actually has something useful).
+    4. Combine both parts.
+    5. Translate the whole thing back to Japanese if the original
+       question was in Japanese.
     """
-    # Step 1 — Detect language
+    history = history or []
+
+    # Step 1 — Detect language of the raw latest message
     lang = detect_language(question)
 
-    # Step 2 — Translate to English for all processing
-    if lang == 'ja':
-        en_question = translate_to_english(question)
-    else:
-        en_question = question
+    # Step 2 — Resolve into standalone English question
+    en_question = resolve_question(question, history)
+    print(f"[RAG] lang={lang} | resolved question: {en_question}")
 
-    print(f"[RAG] lang={lang} | EN question: {en_question}")
-
-    # Step 3 — Part 1: General knowledge (no database)
+    # Step 3 — Part 1: General knowledge
     general_answer = get_general_answer(en_question)
     print(f"[RAG] General answer: {len(general_answer)} chars")
 
-    # Step 4 — Retrieve from database using English question
+    # Step 4 — Retrieve from database
     try:
         docs = retrieve_chunks(en_question)
         print(f"[RAG] Retrieved {len(docs)} chunks")
@@ -198,7 +225,7 @@ def ask(question: str) -> dict:
     else:
         print("[RAG] Chunks not relevant enough")
 
-    # Step 6 — Combine both parts naturally
+    # Step 6 — Combine naturally
     if autoliv_context:
         combined_english = (
             f"{general_answer}\n\n"
@@ -209,7 +236,7 @@ def ask(question: str) -> dict:
     else:
         combined_english = general_answer
 
-    # Step 7 — Translate whole response if Japanese
+    # Step 7 — Translate back if Japanese
     if lang == 'ja':
         print("[RAG] Translating full response to Japanese")
         final_answer = translate_to_japanese(combined_english)
