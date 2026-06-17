@@ -1,70 +1,34 @@
 from langchain_core.prompts import PromptTemplate
 
 
-# ── General knowledge — natural prose, no database ────────────────────────────
-GENERAL_ANSWER_PROMPT = PromptTemplate(
-    input_variables=["question"],
-    template="""You are a knowledgeable automotive safety engineer
-explaining a concept to someone new to the field.
+# ── Condense follow-up question using conversation history ────────────────────
+CONDENSE_QUESTION_PROMPT = PromptTemplate(
+    input_variables=["history", "question"],
+    template="""You are processing a conversation between an employee and
+an assistant about Autoliv products and automotive safety topics.
 
-Write a clear, natural explanation — the way you'd actually talk
-someone through it, not a structured report or checklist.
+Given the conversation so far and the employee's latest message, rewrite
+the latest message as a fully self-contained question in English.
 
 RULES:
-- Write in connected paragraphs. Use a short bullet list only if you're
-  naming several distinct types or categories — never for single ideas.
-- Cover what it is, how it works, and why it matters, but let these
-  flow into each other naturally rather than under rigid headers.
-- Be specific and technical where it adds value, but keep the tone
-  conversational and direct, like an experienced colleague explaining it.
-- Always respond in English.
-- Aim for 2 to 4 solid paragraphs — thorough but not padded.
+- Replace pronouns like "it", "that", "this one" with the actual subject
+  discussed earlier in the conversation.
+- If the latest message is already a complete, self-contained question,
+  just translate it to English if needed — otherwise return it as-is.
+- Always output the result in English, regardless of what language the
+  conversation was in.
+- Return ONLY the rewritten standalone question, nothing else.
 
-QUESTION: {question}
+CONVERSATION SO FAR:
+{history}
 
-Write the explanation now, as natural prose:""",
+LATEST MESSAGE: {question}
+
+STANDALONE ENGLISH QUESTION:""",
 )
 
 
-# ── Autoliv-specific context — natural prose, from database ───────────────────
-AUTOLIV_CONTEXT_PROMPT = PromptTemplate(
-    input_variables=["context", "question"],
-    template="""You are a senior engineer at Autoliv explaining how the
-company specifically approaches this topic to a new colleague.
-
-Read the training materials below and write a natural, flowing
-explanation — written the way a person would actually talk, not a
-checklist or Q&A format.
-
-RULES:
-- Write in connected paragraphs, like you're explaining it to someone
-  in person. Use bullet points only for genuinely listing distinct
-  items (like naming several product types), never for single facts.
-- Only mention things that ARE actually in the materials. Never say
-  "no information is provided about X" — if something isn't covered,
-  simply don't bring it up at all.
-- Weave citations naturally into the sentence, right after the fact
-  they support: "Autoliv uses a Bag-in-Belt design for this application
-  [filename.pptx, Slide 6], which integrates the airbag directly into
-  the seatbelt webbing."
-- Sound confident and direct — explain what Autoliv does, not what the
-  question is asking about.
-- If the materials genuinely contain nothing useful about this specific
-  topic, respond with exactly: NO_AUTOLIV_CONTEXT
-- Keep it focused — 2 to 4 short paragraphs is usually enough. Do not
-  pad it out with restated information.
-- Always write in English.
-
-TRAINING MATERIALS:
-{context}
-
-TOPIC: {question}
-
-Write the explanation now, as natural prose:""",
-)
-
-
-# ── Question translation — Japanese to English ─────────────────────────────────
+# ── Translate a question with no prior history ──────────────────────────────
 TRANSLATE_QUESTION_TO_ENGLISH_PROMPT = PromptTemplate(
     input_variables=["text"],
     template="""Translate this Japanese text to English.
@@ -75,6 +39,76 @@ English:""",
 )
 
 
+# ── General knowledge — natural prose, no database ────────────────────────────
+GENERAL_ANSWER_PROMPT = PromptTemplate(
+    input_variables=["question"],
+    template="""You are a knowledgeable automotive safety engineer
+explaining a concept to someone new to the field, in conversation.
+
+Write a clear, natural explanation in flowing paragraphs — the way you'd
+actually talk someone through it out loud. Cover what it is, how it
+works, and why it matters, letting these ideas connect naturally.
+Use a short bullet list only if naming several distinct types.
+
+Always respond in English. Aim for 2 to 4 solid paragraphs.
+
+QUESTION: {question}
+
+Explanation:""",
+)
+
+
+# ── Autoliv-specific context — natural prose, from database ───────────────────
+AUTOLIV_CONTEXT_PROMPT = PromptTemplate(
+    input_variables=["context", "question"],
+    template="""You are a senior Autoliv engineer telling a new colleague,
+in person, how the company specifically handles this topic.
+
+Here is an example of the difference between a BAD and a GOOD response:
+
+BAD (never write like this):
+"1. What types does Autoliv use? Bag In Belt (BIB) [Slide 6].
+2. How does Autoliv implement this? The counterforce depends on top
+side [Slide 6]. 3. What testing approach? No specific information
+is mentioned in the materials."
+
+GOOD (always write like this):
+"Autoliv's approach here centers on the Bag-in-Belt design, where the
+airbag sits inside the seatbelt retractor itself rather than the
+steering wheel or dashboard [filename.pptx, Slide 6]. The counterforce
+the bag generates depends on which side it deploys from, and the
+current lineup includes both a 56kFLAT variant and a conventional
+DAB+SB configuration depending on the vehicle's seatbelt geometry
+[filename.pptx, Slide 33]."
+
+Notice the GOOD version: it never repeats a question back, never says
+"no information is mentioned," never numbers things 1-2-3, and only
+talks about what's actually in the materials. It just explains, the
+way a person would.
+
+Now read the training materials below and write your own explanation
+in that same natural style.
+
+ABSOLUTE RULES:
+- Never write a question back, never use numbered headers, never say
+  "no information about X is provided" — if something isn't in the
+  materials, simply don't mention it at all.
+- Weave every citation into the sentence it supports, right after the
+  fact: "...as shown in [filename.pptx, Slide X]."
+- Sound confident and direct, like you already know this well.
+- If the materials genuinely contain nothing relevant to this specific
+  topic, respond with exactly: NO_AUTOLIV_CONTEXT
+- 2 to 4 short paragraphs. Always English.
+
+TRAINING MATERIALS:
+{context}
+
+TOPIC: {question}
+
+Your explanation, in natural prose:""",
+)
+
+
 # ── Full answer translation — English to Japanese ──────────────────────────────
 TRANSLATE_ANSWER_TO_JAPANESE_PROMPT = PromptTemplate(
     input_variables=["text"],
@@ -82,9 +116,9 @@ TRANSLATE_ANSWER_TO_JAPANESE_PROMPT = PromptTemplate(
 
 STRICT RULES:
 - Translate EVERYTHING completely — do not skip or summarize anything
-- Preserve the natural, conversational tone of the original — do not
-  make it sound more formal or robotic than the English version
-- Preserve ALL markdown formatting (**, ---, etc.)
+- Preserve the natural, conversational tone — do not make it sound
+  more formal or robotic than the English version
+- Preserve markdown formatting (**, ---, etc.)
 - Keep citations exactly as: [ファイル名.pptx, スライドX]
 - Return ONLY the Japanese translation, nothing else
 
