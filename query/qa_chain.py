@@ -1,9 +1,11 @@
 import sys
 import os
+import traceback
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from langchain_core.output_parsers import StrOutputParser
-from langchain_community.llms      import Ollama
+from langchain_community.chat_models import ChatOllama
 
 from query.retriever import retrieve_chunks
 from query.prompt_templates import (
@@ -21,16 +23,23 @@ MAX_HISTORY_MESSAGES   = 6     # last 3 exchanges
 MAX_HISTORY_CHARS_EACH = 400   # trim long assistant answers
 
 
-# ── LLM ───────────────────────────────────────────────────────────────────────
+# ── LLM CONFIGURATION ─────────────────────────────────────────────────────────
 
-def get_llm() -> Ollama:
+def get_llm() -> ChatOllama:
+    """
+    Returns a unified ChatOllama instance with thinking mode disabled.
+    Qwen3.5 generates internal reasoning tokens by default, which can
+    consume the entire token budget on long structured prompts and
+    leave no room for the actual answer. Disabling it fixes this.
+    """
     global _llm
     if _llm is None:
-        _llm = Ollama(
+        _llm = ChatOllama(
             model=QWEN2_MODEL,
             base_url=OLLAMA_BASE_URL,
             temperature=0.1,
             num_predict=1500,
+            extra_body={"think": False},
         )
     return _llm
 
@@ -70,6 +79,7 @@ def format_history(history: list[dict]) -> str:
 # ── Translation / question resolution ──────────────────────────────────────────
 
 def translate_to_english(text: str) -> str:
+    print("[LLM RUN] Translating input question to English...")
     llm   = get_llm()
     chain = TRANSLATE_QUESTION_TO_ENGLISH_PROMPT | llm | StrOutputParser()
     return chain.invoke({"text": text}).strip()
@@ -78,14 +88,13 @@ def translate_to_english(text: str) -> str:
 def resolve_question(question: str, history: list[dict]) -> str:
     """
     Turn the latest message into a self-contained English question.
-    Uses conversation history to resolve pronouns/follow-ups
-    (e.g. "what type does Autoliv use" -> "what type of bag-in-belt
-    does Autoliv use" if bag-in-belt was the previous topic).
+    Uses conversation history to resolve pronouns/follow-ups.
     Falls back to plain translation if there's no history.
     """
     lang = detect_language(question)
 
     if history:
+        print("[LLM RUN] Condensing conversation history and question...")
         llm   = get_llm()
         chain = CONDENSE_QUESTION_PROMPT | llm | StrOutputParser()
         return chain.invoke({
@@ -100,6 +109,7 @@ def resolve_question(question: str, history: list[dict]) -> str:
 
 
 def translate_to_japanese(text: str) -> str:
+    print("[LLM RUN] Translating full combined response to Japanese...")
     llm   = get_llm()
     chain = TRANSLATE_ANSWER_TO_JAPANESE_PROMPT | llm | StrOutputParser()
     return chain.invoke({"text": text}).strip()
@@ -129,6 +139,7 @@ def is_relevant(docs) -> bool:
 # ── Part 1 — General knowledge ─────────────────────────────────────────────────
 
 def get_general_answer(question: str) -> str:
+    print("[LLM RUN] Generating general knowledge background...")
     llm   = get_llm()
     chain = GENERAL_ANSWER_PROMPT | llm | StrOutputParser()
     return chain.invoke({"question": question}).strip()
@@ -137,6 +148,7 @@ def get_general_answer(question: str) -> str:
 # ── Part 2 — Autoliv-specific context ──────────────────────────────────────────
 
 def get_autoliv_context(question: str, docs) -> str | None:
+    print("[LLM RUN] Analyzing vector database context chunks...")
     llm     = get_llm()
     context = format_docs(docs)
     chain   = AUTOLIV_CONTEXT_PROMPT | llm | StrOutputParser()
@@ -177,14 +189,10 @@ def ask(question: str, history: list[dict] | None = None) -> dict:
     """
     Conversational two-part response pipeline.
 
-    1. Resolve the latest message into a standalone English question,
-       using conversation history to handle follow-ups and pronouns.
-    2. Generate a natural-language general explanation (no database).
-    3. Retrieve relevant chunks and write a natural Autoliv-specific
-       explanation (only if the database actually has something useful).
-    4. Combine both parts.
-    5. Translate the whole thing back to Japanese if the original
-       question was in Japanese.
+    1. Resolve the latest message into a standalone English question.
+    2. Generate a natural-language general explanation.
+    3. Retrieve relevant chunks and write an Autoliv-specific context explanation.
+    4. Combine both fields and process i18n localization transitions if necessary.
     """
     history = history or []
 
@@ -197,14 +205,14 @@ def ask(question: str, history: list[dict] | None = None) -> dict:
 
     # Step 3 — Part 1: General knowledge
     general_answer = get_general_answer(en_question)
-    print(f"[RAG] General answer: {len(general_answer)} chars")
+    print(f"[RAG] General answer generation complete: {len(general_answer)} chars")
 
     # Step 4 — Retrieve from database
     try:
+        print("[RAG] Querying vector database...")
         docs = retrieve_chunks(en_question)
-        print(f"[RAG] Retrieved {len(docs)} chunks")
+        print(f"[RAG] Retrieved {len(docs)} chunks from storage.")
     except Exception as e:
-        import traceback
         print(f"[RAG] RETRIEVAL ERROR: {e}")
         print(traceback.format_exc())
         docs = []
@@ -219,11 +227,11 @@ def ask(question: str, history: list[dict] | None = None) -> dict:
         if autoliv_context:
             sources     = build_sources(docs)
             source_type = "company_data"
-            print(f"[RAG] Autoliv context: {len(autoliv_context)} chars")
+            print(f"[RAG] Autoliv context parsing complete: {len(autoliv_context)} chars")
         else:
-            print("[RAG] No Autoliv-specific context found")
+            print("[RAG] No explicit Autoliv-specific data matched the request context.")
     else:
-        print("[RAG] Chunks not relevant enough")
+        print("[RAG] Content criteria checks evaluated chunks as not relevant enough.")
 
     # Step 6 — Combine naturally
     if autoliv_context:
@@ -238,13 +246,14 @@ def ask(question: str, history: list[dict] | None = None) -> dict:
 
     # Step 7 — Translate back if Japanese
     if lang == 'ja':
-        print("[RAG] Translating full response to Japanese")
+        print("[RAG] Input was Japanese. Initiating pipeline localization...")
         final_answer = translate_to_japanese(combined_english)
     else:
         final_answer = combined_english
 
+    print("[RAG] Generation pipeline finalized completely.")
     return {
         "answer":      final_answer,
-        "sources":     sources,
+        "sources":      sources,
         "source_type": source_type,
     }

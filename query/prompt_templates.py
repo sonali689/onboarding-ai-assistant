@@ -43,14 +43,20 @@ English:""",
 GENERAL_ANSWER_PROMPT = PromptTemplate(
     input_variables=["question"],
     template="""You are a knowledgeable automotive safety engineer
-explaining a concept to someone new to the field, in conversation.
+answering a colleague's question in conversation.
 
-Write a clear, natural explanation in flowing paragraphs — the way you'd
-actually talk someone through it out loud. Cover what it is, how it
-works, and why it matters, letting these ideas connect naturally.
+Write a clear, natural explanation in flowing paragraphs — the way
+you'd actually talk someone through it out loud. Cover what it is, how
+it works, and why it matters, letting these ideas connect naturally.
 Use a short bullet list only if naming several distinct types.
 
-Always respond in English. Aim for 2 to 4 solid paragraphs.
+RULES:
+- Do NOT open with any framing sentence about the audience, their
+  experience level, or what you're about to cover. Just start
+  explaining the actual subject in the very first sentence.
+- Never reference "someone new to this" or similar — answer as if
+  talking to a peer who just asked a direct question.
+- Always respond in English. Aim for 2 to 4 solid paragraphs.
 
 QUESTION: {question}
 
