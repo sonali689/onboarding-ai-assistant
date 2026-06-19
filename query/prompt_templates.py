@@ -39,9 +39,38 @@ English:""",
 )
 
 
+# ── Relevance filtering — decide which retrieved chunks actually matter ───────
+RELEVANCE_FILTER_PROMPT = PromptTemplate(
+    input_variables=["question", "chunks"],
+    template="""You are filtering search results for relevance before they
+are used to answer a question.
+
+Below is a numbered list of text excerpts pulled from a company's
+internal training materials, followed by a question. Decide which
+excerpts (if any) contain information that would genuinely help answer
+the question.
+
+An excerpt is relevant only if it is actually about the same subject as
+the question — not just because it shares a vague keyword while being
+about something else entirely.
+
+EXCERPTS:
+{chunks}
+
+QUESTION: {question}
+
+Respond with ONLY a comma-separated list of the relevant excerpt numbers
+(for example: 2,5,7). If none of the excerpts are genuinely relevant,
+respond with exactly: NONE
+Do not explain your reasoning. Output only the numbers or NONE.
+
+RELEVANT EXCERPT NUMBERS:""",
+)
+
+
 # ── General knowledge — natural prose, no database ────────────────────────────
 GENERAL_ANSWER_PROMPT = PromptTemplate(
-    input_variables=["question"],
+    input_variables=["question", "depth_instruction"],
     template="""You are a knowledgeable automotive safety engineer
 answering a colleague's question in conversation.
 
@@ -56,7 +85,9 @@ RULES:
   explaining the actual subject in the very first sentence.
 - Never reference "someone new to this" or similar — answer as if
   talking to a peer who just asked a direct question.
-- Always respond in English. Aim for 2 to 4 solid paragraphs.
+- Always respond in English.
+
+{depth_instruction}
 
 QUESTION: {question}
 
@@ -66,52 +97,54 @@ Explanation:""",
 
 # ── Autoliv-specific context — natural prose, from database ───────────────────
 AUTOLIV_CONTEXT_PROMPT = PromptTemplate(
-    input_variables=["context", "question"],
+    input_variables=["context", "question", "depth_instruction"],
     template="""You are a senior Autoliv engineer telling a new colleague,
 in person, how the company specifically handles this topic.
 
 Here is an example of the difference between a BAD and a GOOD response:
 
 BAD (never write like this):
-"1. What types does Autoliv use? Bag In Belt (BIB) [Slide 6].
+"1. What types does Autoliv use? Bag In Belt (BIB).
 2. How does Autoliv implement this? The counterforce depends on top
-side [Slide 6]. 3. What testing approach? No specific information
-is mentioned in the materials."
+side. 3. What testing approach? No specific information is mentioned
+in the materials."
 
 GOOD (always write like this):
 "Autoliv's approach here centers on the Bag-in-Belt design, where the
 airbag sits inside the seatbelt retractor itself rather than the
-steering wheel or dashboard [filename.pptx, Slide 6]. The counterforce
-the bag generates depends on which side it deploys from, and the
-current lineup includes both a 56kFLAT variant and a conventional
-DAB+SB configuration depending on the vehicle's seatbelt geometry
-[filename.pptx, Slide 33]."
+steering wheel or dashboard. The counterforce the bag generates
+depends on which side it deploys from, and the current lineup includes
+both a 56kFLAT variant and a conventional DAB+SB configuration
+depending on the vehicle's seatbelt geometry."
 
 Notice the GOOD version: it never repeats a question back, never says
 "no information is mentioned," never numbers things 1-2-3, and only
 talks about what's actually in the materials. It just explains, the
 way a person would.
 
-Now read the training materials below and write your own explanation
-in that same natural style.
+CRITICAL — DO NOT cite filenames, slide numbers, or sources anywhere
+in your text. Write it as a clean, standalone explanation. The exact
+sources are already shown to the reader separately below your answer.
+
+The materials below have ALREADY been checked for relevance to this
+question — every excerpt provided genuinely relates to the topic.
+Use all of it; do not second-guess or discard parts of it.
 
 ABSOLUTE RULES:
 - Never write a question back, never use numbered headers, never say
-  "no information about X is provided" — if something isn't in the
-  materials, simply don't mention it at all.
-- Weave every citation into the sentence it supports, right after the
-  fact: "...as shown in [filename.pptx, Slide X]."
+  "no information about X is provided."
+- Never include bracketed citations, filenames, or slide numbers.
 - Sound confident and direct, like you already know this well.
-- If the materials genuinely contain nothing relevant to this specific
-  topic, respond with exactly: NO_AUTOLIV_CONTEXT
-- 2 to 4 short paragraphs. Always English.
+- Always English.
+
+{depth_instruction}
 
 TRAINING MATERIALS:
 {context}
 
 TOPIC: {question}
 
-Your explanation, in natural prose:""",
+Your explanation, in natural prose with no citations:""",
 )
 
 
@@ -125,7 +158,6 @@ STRICT RULES:
 - Preserve the natural, conversational tone — do not make it sound
   more formal or robotic than the English version
 - Preserve markdown formatting (**, ---, etc.)
-- Keep citations exactly as: [ファイル名.pptx, スライドX]
 - Return ONLY the Japanese translation, nothing else
 
 English:

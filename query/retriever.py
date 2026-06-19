@@ -7,24 +7,14 @@ from ingestion.embedder import get_vectorstore
 from config import TOP_K
 
 
-def get_retriever():
-    """
-    Return a configured ChromaDB retriever.
-    Uses multilingual-e5-large embeddings so Japanese and English
-    questions both retrieve correctly regardless of source language.
-    """
+def get_retriever(k: int = TOP_K):
     vectorstore = get_vectorstore()
     return vectorstore.as_retriever(
         search_type="similarity",
-        search_kwargs={"k": TOP_K},
+        search_kwargs={"k": k},
     )
 
 
-def retrieve_chunks(question: str) -> list[Document]:
-    """
-    Retrieve top-K semantically relevant chunks for a question.
-    Works equally for English and Japanese questions.
-    No LLM call happens here — pure vector similarity search.
-    """
-    retriever = get_retriever()
+def retrieve_chunks(question: str, k: int = TOP_K) -> list[Document]:
+    retriever = get_retriever(k)
     return retriever.invoke(question)

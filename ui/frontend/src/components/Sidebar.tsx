@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 import type { ChatSession } from '../types'
 
 interface Props {
+  width:          number
   sessions:        ChatSession[]
   activeId:        string
   onNewChat:       () => void
@@ -19,14 +20,14 @@ function getInitials(name: string): string {
 }
 
 export default function Sidebar({
-  sessions, activeId, onNewChat, onSelectSession, onDeleteSession,
+  width, sessions, activeId, onNewChat, onSelectSession, onDeleteSession,
 }: Props) {
   const { lang, t }           = useLang()
   const { user, signOut }     = useAuth()
   const [hoverId, setHoverId] = useState<string | null>(null)
 
   return (
-    <div style={{ background: '#003DA5' }} className="w-64 flex flex-col h-full shrink-0 select-none">
+    <div style={{ background: '#003DA5', width: `${width}px` }} className="flex flex-col h-full shrink-0 select-none">
 
       <div className="px-5 pt-5 pb-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.12)' }}>
         <div className="flex items-center gap-3">

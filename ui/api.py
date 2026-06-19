@@ -1,17 +1,18 @@
 import sys
 import os
 import re
+import json
 import unicodedata
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi import FastAPI, Header, HTTPException
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 
-from query.qa_chain import ask
+from query.qa_chain import ask, ask_stream
 from config import PPTX_FOLDER, SLIDE_IMAGE_FOLDER
 from ui.database import (
     init_db, create_user, get_user,
@@ -36,6 +37,7 @@ app.add_middleware(
 class QuestionRequest(BaseModel):
     question: str
     history:  list[dict] | None = None
+    level:    str = "standard"
 
 
 class RegisterRequest(BaseModel):
@@ -113,12 +115,12 @@ async def verify(authorization: Optional[str] = Header(default=None)):
     return JSONResponse({"email": user["email"], "name": user["name"]})
 
 
-# ── RAG ────────────────────────────────────────────────────────────────────────
+# ── RAG — non-streaming (kept for fallback/testing) ─────────────────────────────
 
 @app.post("/ask")
 async def ask_question(request: QuestionRequest):
     try:
-        result = ask(request.question, request.history)
+        result = ask(request.question, request.history, request.level)
         return JSONResponse({
             "answer":      result["answer"],
             "sources":     result["sources"],
@@ -132,6 +134,20 @@ async def ask_question(request: QuestionRequest):
             "source_type": "general_knowledge",
             "status":      "error",
         }, status_code=500)
+
+
+# ── RAG — streaming ──────────────────────────────────────────────────────────
+
+@app.post("/ask/stream")
+async def ask_question_stream(request: QuestionRequest):
+    def event_generator():
+        try:
+            for event in ask_stream(request.question, request.history, request.level):
+                yield json.dumps(event, ensure_ascii=False) + "\n"
+        except Exception as e:
+            yield json.dumps({"type": "error", "message": str(e)}, ensure_ascii=False) + "\n"
+
+    return StreamingResponse(event_generator(), media_type="application/x-ndjson")
 
 
 # ── Chat history ───────────────────────────────────────────────────────────────
@@ -213,6 +229,15 @@ async def serve_file(filename: str):
             "Cache-Control":       "public, max-age=3600",
         },
     )
+
+
+@app.get("/api/file-path/{filename}")
+async def get_file_path(filename: str):
+    for root, dirs, files in os.walk(PPTX_FOLDER):
+        for f in files:
+            if f == filename:
+                return JSONResponse({"path": os.path.abspath(os.path.join(root, f))})
+    return JSONResponse({"error": "File not found"}, status_code=404)
 
 
 @app.get("/api/slide/{filename}/{slide_number}")
