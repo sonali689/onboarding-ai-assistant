@@ -12,20 +12,19 @@ from query.prompt_templates import (
     CONDENSE_QUESTION_PROMPT,
     TRANSLATE_QUESTION_TO_ENGLISH_PROMPT,
     RELEVANCE_FILTER_PROMPT,
-    GENERAL_ANSWER_PROMPT,
-    AUTOLIV_CONTEXT_PROMPT,
+    GENERAL_FALLBACK_PROMPT,
+    AUTOLIV_ANSWER_PROMPT,
     TRANSLATE_ANSWER_TO_JAPANESE_PROMPT,
 )
 from config import (
     STANDARD_MODEL, EXTENDED_MODEL, OLLAMA_BASE_URL,
-    TOP_K, TOP_K_EXTENDED,
+    TOP_K, TOP_K_EXTENDED, RELEVANCE_PREVIEW_CHARS,
 )
 
 _llms: dict[str, ChatOllama] = {}
 
 MAX_HISTORY_MESSAGES    = 6
 MAX_HISTORY_CHARS_EACH  = 400
-RELEVANCE_PREVIEW_CHARS = 350
 
 
 # ── LLM CONFIGURATION ─────────────────────────────────────────────────────────
@@ -62,7 +61,7 @@ def get_extraction_llm(level: str = "standard") -> ChatOllama:
 def get_filter_llm() -> ChatOllama:
     key = "filter"
     if key not in _llms:
-        _llms[key] = _build_llm(STANDARD_MODEL, num_predict=60, temperature=0.0)
+        _llms[key] = _build_llm(STANDARD_MODEL, num_predict=100, temperature=0.0)
     return _llms[key]
 
 
@@ -73,14 +72,14 @@ def get_utility_llm() -> ChatOllama:
 def get_depth_instruction(level: str) -> str:
     if level == "extended":
         return (
-            "DEPTH MODE: EXTENDED. Provide a thorough, in-depth analysis. "
-            "Explore relevant trade-offs, edge cases, and technical nuance "
-            "where it genuinely adds value. It is fine to write more if the "
-            "topic calls for it."
+            "DEPTH MODE: EXTENDED. Extract and present ALL details from the "
+            "provided materials — every specification, every step, every "
+            "variant mentioned. Organize the information thoroughly. Go "
+            "deeper into the materials, not broader beyond them."
         )
     return (
-        "DEPTH MODE: STANDARD. Keep the explanation clear, accurate, and "
-        "to the point — thorough but not padded."
+        "DEPTH MODE: STANDARD. Give a clear, accurate, and complete "
+        "answer covering the key points from the materials."
     )
 
 
@@ -220,25 +219,61 @@ def has_enough_text(docs) -> bool:
     return len(" ".join(d.page_content for d in docs).strip()) >= 100
 
 
-# ── Part 1 — General knowledge ─────────────────────────────────────────────────
+# ── Autoliv document-grounded answer ───────────────────────────────────────────
 
-def get_general_answer(question: str, level: str = "standard") -> str:
-    print(f"[LLM RUN] Generating general knowledge background ({level})...")
+def get_autoliv_answer(question: str, docs, level: str = "standard") -> str | None:
+    """Generate answer grounded ONLY in retrieved training materials."""
+    print(f"[LLM RUN] Writing document-grounded Autoliv answer ({level})...")
+    context = format_docs(docs)
+
+    llm   = get_extraction_llm(level)
+    chain = AUTOLIV_ANSWER_PROMPT | llm | StrOutputParser()
+    result = invoke_with_retry(
+        chain,
+        {
+            "context":           context,
+            "question":          question,
+            "depth_instruction": get_depth_instruction(level),
+        },
+        "get_autoliv_answer",
+    )
+
+    if not result and level == "extended":
+        llm_fallback   = get_extraction_llm("standard")
+        chain_fallback = AUTOLIV_ANSWER_PROMPT | llm_fallback | StrOutputParser()
+        result = invoke_with_retry(
+            chain_fallback,
+            {
+                "context":           context,
+                "question":          question,
+                "depth_instruction": get_depth_instruction("standard"),
+            },
+            "get_autoliv_answer_fallback",
+        )
+
+    return result if result else None
+
+
+# ── General knowledge fallback ─────────────────────────────────────────────────
+
+def get_general_fallback(question: str, level: str = "standard") -> str:
+    """Fallback answer when NO relevant documents are found."""
+    print(f"[LLM RUN] No documents matched — generating general fallback ({level})...")
     llm   = get_llm(level)
-    chain = GENERAL_ANSWER_PROMPT | llm | StrOutputParser()
+    chain = GENERAL_FALLBACK_PROMPT | llm | StrOutputParser()
     result = invoke_with_retry(
         chain,
         {"question": question, "depth_instruction": get_depth_instruction(level)},
-        "get_general_answer",
+        "get_general_fallback",
     )
 
     if not result and level == "extended":
         llm_fallback   = get_llm("standard")
-        chain_fallback = GENERAL_ANSWER_PROMPT | llm_fallback | StrOutputParser()
+        chain_fallback = GENERAL_FALLBACK_PROMPT | llm_fallback | StrOutputParser()
         result = invoke_with_retry(
             chain_fallback,
             {"question": question, "depth_instruction": get_depth_instruction("standard")},
-            "get_general_answer_fallback",
+            "get_general_fallback_fallback",
         )
 
     if not result:
@@ -247,42 +282,6 @@ def get_general_answer(question: str, level: str = "standard") -> str:
             "Please try rephrasing your question or try again in a moment."
         )
 
-    return result
-
-
-# ── Part 2 — Autoliv-specific context ──────────────────────────────────────────
-
-def get_autoliv_context(question: str, docs, level: str = "standard") -> str | None:
-    print(f"[LLM RUN] Writing Autoliv-specific explanation ({level})...")
-    context = format_docs(docs)
-
-    llm   = get_extraction_llm(level)
-    chain = AUTOLIV_CONTEXT_PROMPT | llm | StrOutputParser()
-    result = invoke_with_retry(
-        chain,
-        {
-            "context":           context,
-            "question":          question,
-            "depth_instruction": get_depth_instruction(level),
-        },
-        "get_autoliv_context",
-    )
-
-    if not result and level == "extended":
-        llm_fallback   = get_extraction_llm("standard")
-        chain_fallback = AUTOLIV_CONTEXT_PROMPT | llm_fallback | StrOutputParser()
-        result = invoke_with_retry(
-            chain_fallback,
-            {
-                "context":           context,
-                "question":          question,
-                "depth_instruction": get_depth_instruction("standard"),
-            },
-            "get_autoliv_context_fallback",
-        )
-
-    if not result:
-        return None
     return result
 
 
@@ -313,6 +312,15 @@ def ask(
     history: list[dict] | None = None,
     level: str = "standard",
 ) -> dict:
+    """
+    Option B flow: Documents first. General knowledge ONLY as fallback.
+
+    1. Resolve question (handle history, translate if Japanese)
+    2. Retrieve chunks from ChromaDB
+    3. Filter for relevance
+    4. If relevant docs found → answer ONLY from documents
+    5. If NO relevant docs → provide general knowledge fallback
+    """
     history = history or []
     if level not in ("standard", "extended"):
         level = "standard"
@@ -321,7 +329,6 @@ def ask(
     en_question = resolve_question(question, history)
     print(f"[RAG] lang={lang} | level={level} | resolved question: {en_question}")
 
-    general_answer = get_general_answer(en_question, level)
     retrieval_k = TOP_K_EXTENDED if level == "extended" else TOP_K
 
     try:
@@ -331,24 +338,25 @@ def ask(
         print(traceback.format_exc())
         raw_docs = []
 
-    autoliv_context = None
-    sources         = []
-    source_type     = "general_knowledge"
+    # ── Try document-grounded answer first ─────────────────────────────
+    answer      = None
+    sources     = []
+    source_type = "general_knowledge"
 
     if has_enough_text(raw_docs):
         relevant_docs = filter_relevant_docs(en_question, raw_docs)
         if relevant_docs:
-            autoliv_context = get_autoliv_context(en_question, relevant_docs, level)
-            if autoliv_context:
+            answer = get_autoliv_answer(en_question, relevant_docs, level)
+            if answer:
                 sources     = build_sources(relevant_docs)
                 source_type = "company_data"
 
-    if autoliv_context:
-        combined_english = f"{general_answer}\n\n---\n\n**At Autoliv**\n\n{autoliv_context}"
-    else:
-        combined_english = general_answer
+    # ── Fallback to general knowledge only if docs failed ──────────────
+    if not answer:
+        answer = get_general_fallback(en_question, level)
 
-    final_answer = translate_to_japanese(combined_english) if lang == 'ja' else combined_english
+    # ── Translate if Japanese input ────────────────────────────────────
+    final_answer = translate_to_japanese(answer) if lang == 'ja' else answer
 
     return {
         "answer":      final_answer,
@@ -369,6 +377,8 @@ def ask_stream(
       {"type": "token", "text": "..."}
       {"type": "done", "sources": [...], "source_type": "..."}
       {"type": "error", "message": "..."}
+
+    Option B flow: Documents first. General knowledge ONLY as fallback.
     """
     history = history or []
     if level not in ("standard", "extended"):
@@ -394,71 +404,73 @@ def ask_stream(
         sources     = build_sources(relevant_docs) if relevant_docs else []
         source_type = "company_data" if relevant_docs else "general_knowledge"
 
-        if lang == 'en':
-            # ── Stream the general answer directly ──────────────────────
-            llm   = get_llm(level)
-            chain = GENERAL_ANSWER_PROMPT | llm | StrOutputParser()
-            general_chunks = []
-            for piece in chain.stream({
-                "question": en_question,
+        # ── Decide which prompt to use ─────────────────────────────────
+        if relevant_docs:
+            # DOCUMENT-GROUNDED answer
+            llm          = get_extraction_llm(level)
+            context_text = format_docs(relevant_docs)
+            prompt       = AUTOLIV_ANSWER_PROMPT
+            inputs       = {
+                "context":           context_text,
+                "question":          en_question,
                 "depth_instruction": get_depth_instruction(level),
-            }):
+            }
+        else:
+            # GENERAL FALLBACK — no matching docs
+            llm    = get_llm(level)
+            prompt = GENERAL_FALLBACK_PROMPT
+            inputs = {
+                "question":          en_question,
+                "depth_instruction": get_depth_instruction(level),
+            }
+
+        chain = prompt | llm | StrOutputParser()
+
+        if lang == 'en':
+            # ── Stream directly ────────────────────────────────────────
+            answer_chunks = []
+            for piece in chain.stream(inputs):
                 if piece:
-                    general_chunks.append(piece)
+                    answer_chunks.append(piece)
                     yield {"type": "token", "text": piece}
 
-            if not "".join(general_chunks).strip():
-                fallback = get_general_answer(en_question, "standard")
-                yield {"type": "token", "text": fallback}
-
-            # ── Stream the Autoliv section, if any ──────────────────────
-            if relevant_docs:
-                yield {"type": "token", "text": "\n\n---\n\n**At Autoliv**\n\n"}
-
-                extraction_llm = get_extraction_llm(level)
-                context_text   = format_docs(relevant_docs)
-                chain2 = AUTOLIV_CONTEXT_PROMPT | extraction_llm | StrOutputParser()
-
-                autoliv_chunks = []
-                for piece in chain2.stream({
-                    "context":           context_text,
-                    "question":          en_question,
-                    "depth_instruction": get_depth_instruction(level),
-                }):
-                    if piece:
-                        autoliv_chunks.append(piece)
-                        yield {"type": "token", "text": piece}
-
-                autoliv_text = "".join(autoliv_chunks).strip()
-                if not autoliv_text:
-                    sources     = []
-                    source_type = "general_knowledge"
+            if not "".join(answer_chunks).strip():
+                # Retry without streaming
+                if relevant_docs:
+                    fallback = get_autoliv_answer(en_question, relevant_docs, "standard")
+                else:
+                    fallback = get_general_fallback(en_question, "standard")
+                if fallback:
+                    yield {"type": "token", "text": fallback}
 
         else:
-            # ── Japanese — build full English text invisibly, stream translation ──
-            general_answer = get_general_answer(en_question, level)
+            # ── Japanese — build English invisibly, stream translation ──
+            english_answer = invoke_with_retry(chain, inputs, "stream_build_english")
 
-            autoliv_context = None
-            if relevant_docs:
-                autoliv_context = get_autoliv_context(en_question, relevant_docs, level)
+            if not english_answer:
+                if relevant_docs:
+                    english_answer = get_autoliv_answer(en_question, relevant_docs, "standard") or ""
+                else:
+                    english_answer = get_general_fallback(en_question, "standard")
 
-            if autoliv_context:
-                combined_english = f"{general_answer}\n\n---\n\n**At Autoliv**\n\n{autoliv_context}"
-            else:
-                combined_english = general_answer
+            if not english_answer:
                 sources     = []
                 source_type = "general_knowledge"
+                english_answer = (
+                    "I wasn't able to generate a response right now. "
+                    "Please try rephrasing your question or try again."
+                )
 
-            llm   = get_utility_llm()
-            chain = TRANSLATE_ANSWER_TO_JAPANESE_PROMPT | llm | StrOutputParser()
+            ja_llm  = get_utility_llm()
+            ja_chain = TRANSLATE_ANSWER_TO_JAPANESE_PROMPT | ja_llm | StrOutputParser()
             ja_chunks = []
-            for piece in chain.stream({"text": combined_english}):
+            for piece in ja_chain.stream({"text": english_answer}):
                 if piece:
                     ja_chunks.append(piece)
                     yield {"type": "token", "text": piece}
 
             if not "".join(ja_chunks).strip():
-                yield {"type": "token", "text": combined_english}
+                yield {"type": "token", "text": english_answer}
 
         yield {"type": "done", "sources": sources, "source_type": source_type}
 

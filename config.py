@@ -30,14 +30,23 @@ EMBEDDING_MODEL = "jeffh/intfloat-multilingual-e5-large:f16"
 # ============================================================================
 # TEXT CHUNKING
 # ============================================================================
-CHUNK_SIZE = 500
-CHUNK_OVERLAP = 50
+CHUNK_SIZE = 1500         # ~1 full slide per chunk, preserves coherent meaning
+CHUNK_OVERLAP = 200       # enough to keep context across boundaries
 
 # ============================================================================
 # RETRIEVAL
 # ============================================================================
-TOP_K = 10 # standard mode
-TOP_K_EXTENDED = 15 # extended mode — more material, not more reasoning load
+TOP_K = 8                 # standard mode — fewer but larger, meaningful chunks
+TOP_K_EXTENDED = 12       # extended mode — more material for deeper answers
+
+# MMR (Maximal Marginal Relevance) — balances relevance with diversity
+MMR_FETCH_K = 25          # candidate pool size for MMR to pick from
+MMR_LAMBDA = 0.7          # 0=max diversity, 1=max relevance — 0.7 favors relevance
+
+# ============================================================================
+# RELEVANCE FILTERING
+# ============================================================================
+RELEVANCE_PREVIEW_CHARS = 600   # chars shown to filter LLM per chunk
 
 # ============================================================================
 # SLIDE EXPORT

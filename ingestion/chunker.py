@@ -31,20 +31,34 @@ def chunk_slide_document(
     Combine slide text + vision description into chunks.
     Uses Japanese-aware splitter with punctuation separators.
     Returns list of LangChain Document objects with metadata.
+
+    IMPORTANT: Every chunk gets a context prefix with the slide title
+    and source file, so even after splitting, each chunk is
+    self-describing and can be matched to queries independently.
     """
-    combined_content = f"""
-=== SLIDE {slide_data['slide_number']}: {slide_data['slide_title']} ===
-SOURCE: {slide_data['filename']} | CATEGORY: {slide_data['subfolder']}
+    # ── Build the context prefix that goes on EVERY chunk ─────────────
+    context_prefix = (
+        f"[CONTEXT: {slide_data['slide_title']} | "
+        f"Source: {slide_data['filename']} | "
+        f"Category: {slide_data['subfolder']}]\n\n"
+    )
 
-[Extracted Text]
-{slide_data['text']}
+    # ── Build the content to be split ─────────────────────────────────
+    parts = []
 
-[Speaker Notes]
-{slide_data['notes']}
+    if slide_data['text'].strip():
+        parts.append(slide_data['text'].strip())
 
-[Visual Description]
-{vision_description}
-""".strip()
+    if slide_data['notes'].strip():
+        parts.append(f"Speaker Notes: {slide_data['notes'].strip()}")
+
+    if vision_description.strip():
+        parts.append(f"Visual Description: {vision_description.strip()}")
+
+    combined_content = "\n\n".join(parts)
+
+    if not combined_content.strip():
+        return []
 
     lang_hint = detect_language_hint(
         slide_data["text"] + vision_description
@@ -69,13 +83,22 @@ SOURCE: {slide_data['filename']} | CATEGORY: {slide_data['subfolder']}
             "？",     # full-width question mark
             "、",     # Japanese comma
             "\n",     # line breaks
+            ". ",     # English sentence boundary
             " ",      # spaces (English)
             "",       # character-level fallback (last resort)
         ],
     )
 
-    chunks = splitter.create_documents(
+    raw_chunks = splitter.create_documents(
         texts=[combined_content],
         metadatas=[metadata],
     )
-    return chunks
+
+    # ── Prepend context prefix to EVERY chunk ─────────────────────────
+    # This ensures that even when content splits across chunks,
+    # each chunk carries its slide title and source for better
+    # embedding matching and LLM comprehension.
+    for chunk in raw_chunks:
+        chunk.page_content = context_prefix + chunk.page_content
+
+    return raw_chunks

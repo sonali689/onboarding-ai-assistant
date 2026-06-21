@@ -25,6 +25,9 @@ def extract_pdf_slide_data(pdf_path: str) -> list[dict]:
     Extract text from each page of a PDF.
     Returns list of dicts in same format as pptx_extractor
     so the rest of the pipeline works identically.
+
+    Uses 'blocks' extraction mode to preserve table and list structure
+    better than plain 'text' mode which concatenates everything.
     """
     slides_data = []
     filename  = os.path.basename(pdf_path)
@@ -39,12 +42,26 @@ def extract_pdf_slide_data(pdf_path: str) -> list[dict]:
     for page_num in range(len(doc)):
         page = doc[page_num]
 
-        # Extract text — preserves Japanese characters natively
-        text = page.get_text("text").strip()
+        # Extract text blocks — preserves spatial grouping better than
+        # plain text mode, especially for tables and multi-column layouts.
+        # Each block is (x0, y0, x1, y1, "text", block_no, block_type)
+        blocks = page.get_text("blocks")
 
-        # First line as title if available
-        lines = text.split("\n")
-        slide_title = lines[0].strip() if lines else ""
+        # Filter to text blocks only (type 0), sort by position (top-to-bottom, left-to-right)
+        text_blocks = [b for b in blocks if b[6] == 0]  # type 0 = text
+        text_blocks.sort(key=lambda b: (round(b[1] / 15) * 15, b[0]))  # snap Y to grid to handle slight misalignments
+
+        # Join blocks with double newlines to preserve paragraph boundaries
+        block_texts = []
+        for b in text_blocks:
+            block_text = b[4].strip()
+            if block_text:
+                block_texts.append(block_text)
+
+        text = "\n\n".join(block_texts)
+
+        # First block as title if available
+        slide_title = block_texts[0].split("\n")[0].strip() if block_texts else ""
 
         slides_data.append({
             "slide_number": page_num + 1,
