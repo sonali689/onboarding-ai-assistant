@@ -14,6 +14,7 @@ from query.prompt_templates import (
     RELEVANCE_FILTER_PROMPT,
     GENERAL_FALLBACK_PROMPT,
     AUTOLIV_ANSWER_PROMPT,
+    ENGLISH_CLEANUP_PROMPT,
     TRANSLATE_ANSWER_TO_JAPANESE_PROMPT,
 )
 from config import (
@@ -106,6 +107,32 @@ def detect_language(text: str) -> str:
         ):
             return 'ja'
     return 'en'
+
+
+def is_mostly_japanese(text: str, threshold: float = 0.15) -> bool:
+    """
+    Checks whether text that was supposed to be pure English actually
+    leaked a meaningful amount of Japanese. Used as a safety net before
+    translating — translating already-Japanese-contaminated text
+    produces garbled double-translation artifacts (e.g. "airbag"
+    becoming "airsac").
+    """
+    if not text:
+        return False
+    cjk_count = sum(
+        1 for c in text
+        if ('\u3040' <= c <= '\u30ff') or ('\u4e00' <= c <= '\u9fff')
+    )
+    return (cjk_count / max(len(text), 1)) > threshold
+
+
+def clean_up_english(text: str, level: str = "standard") -> str:
+    """Rewrites contaminated text to be purely English, preserving facts."""
+    print("[RAG] WARNING: English-stage answer leaked Japanese — cleaning up...")
+    llm   = get_extraction_llm(level)
+    chain = ENGLISH_CLEANUP_PROMPT | llm | StrOutputParser()
+    result = invoke_with_retry(chain, {"text": text}, "clean_up_english")
+    return result if result else text
 
 
 # ── History formatting ─────────────────────────────────────────────────────────
@@ -251,6 +278,9 @@ def get_autoliv_answer(question: str, docs, level: str = "standard") -> str | No
             "get_autoliv_answer_fallback",
         )
 
+    if result and is_mostly_japanese(result):
+        result = clean_up_english(result, level)
+    
     return result if result else None
 
 
@@ -356,7 +386,14 @@ def ask(
         answer = get_general_fallback(en_question, level)
 
     # ── Translate if Japanese input ────────────────────────────────────
-    final_answer = translate_to_japanese(answer) if lang == 'ja' else answer
+    #final_answer = translate_to_japanese(answer) if lang == 'ja' else answer
+
+    if lang == 'ja':
+        if is_mostly_japanese(answer):
+            answer = clean_up_english(answer, level)
+        final_answer = translate_to_japanese(answer)
+    else:
+        final_answer = answer
 
     return {
         "answer":      final_answer,
@@ -446,6 +483,9 @@ def ask_stream(
         else:
             # ── Japanese — build English invisibly, stream translation ──
             english_answer = invoke_with_retry(chain, inputs, "stream_build_english")
+
+            if english_answer and is_mostly_japanese(english_answer):
+                english_answer = clean_up_english(english_answer, level)
 
             if not english_answer:
                 if relevant_docs:
