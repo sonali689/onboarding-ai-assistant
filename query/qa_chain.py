@@ -7,10 +7,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from langchain_core.output_parsers import StrOutputParser
 from langchain_community.chat_models import ChatOllama
 
-from query.retriever import retrieve_chunks
+from query.retriever import retrieve_chunks, retrieve_bilingual
 from query.prompt_templates import (
     CONDENSE_QUESTION_PROMPT,
     TRANSLATE_QUESTION_TO_ENGLISH_PROMPT,
+    QUERY_CORRECTION_PROMPT,
     RELEVANCE_FILTER_PROMPT,
     GENERAL_FALLBACK_PROMPT,
     AUTOLIV_ANSWER_PROMPT,
@@ -149,6 +150,34 @@ def format_history(history: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def format_history_brief(history: list[dict]) -> str:
+    """Shorter version for passing to answer prompts (tone awareness only)."""
+    if not history:
+        return "(No previous conversation)"
+    recent = history[-3:]  # last 3 messages only, for tone sensing
+    lines  = []
+    for msg in recent:
+        role    = "User" if msg.get("role") == "user" else "Assistant"
+        content = msg.get("content", "")[:200]
+        lines.append(f"{role}: {content}")
+    return "\n".join(lines)
+
+
+# ── Query correction (typo fixing) ────────────────────────────────────────────
+
+def correct_query(question: str) -> str:
+    """Fix typos/spelling in the question before retrieval."""
+    print("[LLM RUN] Checking for typos in question...")
+    llm   = get_utility_llm()
+    chain = QUERY_CORRECTION_PROMPT | llm | StrOutputParser()
+    corrected = invoke_with_retry(chain, {"question": question}, "correct_query")
+
+    if corrected and corrected.lower().strip() != question.lower().strip():
+        print(f"[RAG] Typo correction: '{question}' → '{corrected}'")
+        return corrected
+    return question
+
+
 # ── Translation / question resolution ──────────────────────────────────────────
 
 def translate_to_english(text: str) -> str:
@@ -158,23 +187,30 @@ def translate_to_english(text: str) -> str:
     return invoke_with_retry(chain, {"text": text}, "translate_to_english")
 
 
-def resolve_question(question: str, history: list[dict]) -> str:
+def resolve_question(question: str, history: list[dict]) -> tuple[str, str]:
+    """
+    Returns (english_question, original_question).
+    The original is kept for bilingual retrieval.
+    """
     lang = detect_language(question)
 
     if history:
         print("[LLM RUN] Condensing conversation history and question...")
         llm   = get_utility_llm()
         chain = CONDENSE_QUESTION_PROMPT | llm | StrOutputParser()
-        return invoke_with_retry(
+        condensed = invoke_with_retry(
             chain,
             {"history": format_history(history), "question": question},
             "resolve_question",
         )
+        # Condensed is always English — keep original for bilingual search
+        return condensed, question
 
     if lang == 'ja':
-        return translate_to_english(question)
+        en = translate_to_english(question)
+        return en, question
 
-    return question
+    return question, question
 
 
 def translate_to_japanese(text: str) -> str:
@@ -231,10 +267,9 @@ def format_docs(docs) -> str:
     parts = []
     for doc in docs:
         source    = doc.metadata.get("source", "")
-        slide_num = doc.metadata.get("slide_number", "")
         subfolder = doc.metadata.get("subfolder", "")
         parts.append(
-            f"[Source: {source} | Slide {slide_num} | {subfolder}]\n"
+            f"[Source: {source} | {subfolder}]\n"
             f"{doc.page_content}"
         )
     return "\n\n---\n\n".join(parts)
@@ -248,10 +283,12 @@ def has_enough_text(docs) -> bool:
 
 # ── Autoliv document-grounded answer ───────────────────────────────────────────
 
-def get_autoliv_answer(question: str, docs, level: str = "standard") -> str | None:
+def get_autoliv_answer(question: str, docs, level: str = "standard",
+                       history: list[dict] | None = None) -> str | None:
     """Generate answer grounded ONLY in retrieved training materials."""
     print(f"[LLM RUN] Writing document-grounded Autoliv answer ({level})...")
     context = format_docs(docs)
+    history_text = format_history_brief(history or [])
 
     llm   = get_extraction_llm(level)
     chain = AUTOLIV_ANSWER_PROMPT | llm | StrOutputParser()
@@ -261,6 +298,7 @@ def get_autoliv_answer(question: str, docs, level: str = "standard") -> str | No
             "context":           context,
             "question":          question,
             "depth_instruction": get_depth_instruction(level),
+            "history":           history_text,
         },
         "get_autoliv_answer",
     )
@@ -274,26 +312,34 @@ def get_autoliv_answer(question: str, docs, level: str = "standard") -> str | No
                 "context":           context,
                 "question":          question,
                 "depth_instruction": get_depth_instruction("standard"),
+                "history":           history_text,
             },
             "get_autoliv_answer_fallback",
         )
 
     if result and is_mostly_japanese(result):
         result = clean_up_english(result, level)
-    
+
     return result if result else None
 
 
 # ── General knowledge fallback ─────────────────────────────────────────────────
 
-def get_general_fallback(question: str, level: str = "standard") -> str:
+def get_general_fallback(question: str, level: str = "standard",
+                         history: list[dict] | None = None) -> str:
     """Fallback answer when NO relevant documents are found."""
     print(f"[LLM RUN] No documents matched — generating general fallback ({level})...")
+    history_text = format_history_brief(history or [])
+
     llm   = get_llm(level)
     chain = GENERAL_FALLBACK_PROMPT | llm | StrOutputParser()
     result = invoke_with_retry(
         chain,
-        {"question": question, "depth_instruction": get_depth_instruction(level)},
+        {
+            "question":          question,
+            "depth_instruction": get_depth_instruction(level),
+            "history":           history_text,
+        },
         "get_general_fallback",
     )
 
@@ -302,7 +348,11 @@ def get_general_fallback(question: str, level: str = "standard") -> str:
         chain_fallback = GENERAL_FALLBACK_PROMPT | llm_fallback | StrOutputParser()
         result = invoke_with_retry(
             chain_fallback,
-            {"question": question, "depth_instruction": get_depth_instruction("standard")},
+            {
+                "question":          question,
+                "depth_instruction": get_depth_instruction("standard"),
+                "history":           history_text,
+            },
             "get_general_fallback_fallback",
         )
 
@@ -315,22 +365,22 @@ def get_general_fallback(question: str, level: str = "standard") -> str:
     return result
 
 
-# ── Sources ────────────────────────────────────────────────────────────────────
+# ── Sources — deduplicated by FILE only, no slide numbers ─────────────────────
 
 def build_sources(docs) -> list[dict]:
+    """
+    Build source list deduplicated by FILENAME only.
+    No slide numbers — they were meaningless/wrong and confused users.
+    """
     seen, sources = set(), []
     for doc in docs:
-        key = (
-            doc.metadata.get("source", ""),
-            doc.metadata.get("slide_number", ""),
-        )
-        if key not in seen:
-            seen.add(key)
+        filename = doc.metadata.get("source", "")
+        if filename and filename not in seen:
+            seen.add(filename)
             sources.append({
-                "file":         doc.metadata.get("source", ""),
-                "slide_number": doc.metadata.get("slide_number", ""),
-                "subfolder":    doc.metadata.get("subfolder", ""),
-                "lang_hint":    doc.metadata.get("lang_hint", ""),
+                "file":      filename,
+                "subfolder": doc.metadata.get("subfolder", ""),
+                "lang_hint": doc.metadata.get("lang_hint", ""),
             })
     return sources
 
@@ -344,25 +394,27 @@ def ask(
 ) -> dict:
     """
     Option B flow: Documents first. General knowledge ONLY as fallback.
-
-    1. Resolve question (handle history, translate if Japanese)
-    2. Retrieve chunks from ChromaDB
-    3. Filter for relevance
-    4. If relevant docs found → answer ONLY from documents
-    5. If NO relevant docs → provide general knowledge fallback
+    Bilingual retrieval for cross-language consistency.
+    Typo correction before retrieval.
+    History-aware prompts for conversational tone.
     """
     history = history or []
     if level not in ("standard", "extended"):
         level = "standard"
 
     lang = detect_language(question)
-    en_question = resolve_question(question, history)
+    en_question, original_question = resolve_question(question, history)
+
+    # ── Typo correction ───────────────────────────────────────────────
+    en_question = correct_query(en_question)
+
     print(f"[RAG] lang={lang} | level={level} | resolved question: {en_question}")
 
     retrieval_k = TOP_K_EXTENDED if level == "extended" else TOP_K
 
+    # ── Bilingual retrieval ───────────────────────────────────────────
     try:
-        raw_docs = retrieve_chunks(en_question, k=retrieval_k)
+        raw_docs = retrieve_bilingual(original_question, en_question, k=retrieval_k)
     except Exception as e:
         print(f"[RAG] RETRIEVAL ERROR: {e}")
         print(traceback.format_exc())
@@ -376,18 +428,16 @@ def ask(
     if has_enough_text(raw_docs):
         relevant_docs = filter_relevant_docs(en_question, raw_docs)
         if relevant_docs:
-            answer = get_autoliv_answer(en_question, relevant_docs, level)
+            answer = get_autoliv_answer(en_question, relevant_docs, level, history)
             if answer:
                 sources     = build_sources(relevant_docs)
                 source_type = "company_data"
 
     # ── Fallback to general knowledge only if docs failed ──────────────
     if not answer:
-        answer = get_general_fallback(en_question, level)
+        answer = get_general_fallback(en_question, level, history)
 
     # ── Translate if Japanese input ────────────────────────────────────
-    #final_answer = translate_to_japanese(answer) if lang == 'ja' else answer
-
     if lang == 'ja':
         if is_mostly_japanese(answer):
             answer = clean_up_english(answer, level)
@@ -416,6 +466,7 @@ def ask_stream(
       {"type": "error", "message": "..."}
 
     Option B flow: Documents first. General knowledge ONLY as fallback.
+    Bilingual retrieval + typo correction + history-aware prompts.
     """
     history = history or []
     if level not in ("standard", "extended"):
@@ -423,12 +474,18 @@ def ask_stream(
 
     try:
         lang = detect_language(question)
-        en_question = resolve_question(question, history)
+        en_question, original_question = resolve_question(question, history)
+
+        # ── Typo correction ───────────────────────────────────────────
+        en_question = correct_query(en_question)
+
         print(f"[RAG-STREAM] lang={lang} | level={level} | resolved question: {en_question}")
 
         retrieval_k = TOP_K_EXTENDED if level == "extended" else TOP_K
+
+        # ── Bilingual retrieval ───────────────────────────────────────
         try:
-            raw_docs = retrieve_chunks(en_question, k=retrieval_k)
+            raw_docs = retrieve_bilingual(original_question, en_question, k=retrieval_k)
         except Exception as e:
             print(f"[RAG-STREAM] RETRIEVAL ERROR: {e}")
             raw_docs = []
@@ -441,6 +498,8 @@ def ask_stream(
         sources     = build_sources(relevant_docs) if relevant_docs else []
         source_type = "company_data" if relevant_docs else "general_knowledge"
 
+        history_text = format_history_brief(history)
+
         # ── Decide which prompt to use ─────────────────────────────────
         if relevant_docs:
             # DOCUMENT-GROUNDED answer
@@ -451,6 +510,7 @@ def ask_stream(
                 "context":           context_text,
                 "question":          en_question,
                 "depth_instruction": get_depth_instruction(level),
+                "history":           history_text,
             }
         else:
             # GENERAL FALLBACK — no matching docs
@@ -459,6 +519,7 @@ def ask_stream(
             inputs = {
                 "question":          en_question,
                 "depth_instruction": get_depth_instruction(level),
+                "history":           history_text,
             }
 
         chain = prompt | llm | StrOutputParser()
@@ -474,9 +535,9 @@ def ask_stream(
             if not "".join(answer_chunks).strip():
                 # Retry without streaming
                 if relevant_docs:
-                    fallback = get_autoliv_answer(en_question, relevant_docs, "standard")
+                    fallback = get_autoliv_answer(en_question, relevant_docs, "standard", history)
                 else:
-                    fallback = get_general_fallback(en_question, "standard")
+                    fallback = get_general_fallback(en_question, "standard", history)
                 if fallback:
                     yield {"type": "token", "text": fallback}
 
@@ -489,9 +550,9 @@ def ask_stream(
 
             if not english_answer:
                 if relevant_docs:
-                    english_answer = get_autoliv_answer(en_question, relevant_docs, "standard") or ""
+                    english_answer = get_autoliv_answer(en_question, relevant_docs, "standard", history) or ""
                 else:
-                    english_answer = get_general_fallback(en_question, "standard")
+                    english_answer = get_general_fallback(en_question, "standard", history)
 
             if not english_answer:
                 sources     = []
