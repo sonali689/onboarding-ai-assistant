@@ -31,7 +31,19 @@ STANDALONE ENGLISH QUESTION:""",
 # ── Translate a question with no prior history ──────────────────────────────
 TRANSLATE_QUESTION_TO_ENGLISH_PROMPT = PromptTemplate(
     input_variables=["text"],
-    template="""Translate this Japanese text to English.
+    template="""You are translating a question from a new employee at
+Autoliv, an automotive safety company that manufactures airbags,
+seatbelts, steering wheels, inflators, and related safety systems.
+
+Translate the Japanese text to English. Keep all technical product names
+and acronyms intact. The question is about automotive safety — translate
+in that context.
+
+For example:
+- "バッグ・イン・ベルト" → "Bag-in-Belt" (an airbag seatbelt system)
+- "インフレーター" → "inflator" (gas generator for airbags)
+- "DAB" → "DAB" (Driver Airbag — keep the acronym)
+
 Return ONLY the English translation, nothing else.
 
 Japanese: {text}
@@ -43,15 +55,44 @@ English:""",
 QUERY_CORRECTION_PROMPT = PromptTemplate(
     input_variables=["question"],
     template="""Fix any spelling mistakes or typos in the question below.
+This question is about automotive safety products (airbags, seatbelts,
+inflators, steering wheels). Keep technical terms and product names
+intact — do NOT change terms you don't recognize, they may be product
+names.
+
 Keep the meaning exactly the same. If there are no mistakes, return the
 question unchanged.
 
-Return ONLY the corrected question, nothing else. Do not add any
-explanation or commentary.
+Return ONLY the corrected question, nothing else.
 
 Question: {question}
 
 Corrected:""",
+)
+
+
+# ── Query expansion — generate search-optimized terms for retrieval ───────────
+QUERY_EXPANSION_PROMPT = PromptTemplate(
+    input_variables=["question"],
+    template="""You are a search assistant for Autoliv, an automotive
+safety company. Given the employee's question below, generate a
+search-optimized query that includes the original terms PLUS relevant
+acronyms, full forms, and related technical terms.
+
+This helps find relevant training material even when the question is vague.
+
+Examples:
+- "What is bag in belt?" → "bag in belt BIB airbag seatbelt system Bag-in-Belt"
+- "What are inflators?" → "inflators inflator types pyrotechnic compressed gas hybrid inflator"
+- "Tell me about DAB" → "DAB driver airbag frontal airbag driver side"
+- "What is NCAP?" → "NCAP Euro NCAP star rating safety rating crash test"
+- "knee airbag" → "knee airbag KAB knee bolster lower leg protection"
+
+Return ONLY the expanded search query, nothing else. Keep it on one line.
+
+Question: {question}
+
+Expanded search query:""",
 )
 
 
@@ -97,16 +138,20 @@ knowledgeable colleague who genuinely enjoys helping new team members
 learn. You answer questions using the company training materials provided
 below.
 
-PERSONALITY:
-- Be warm, approachable, and natural — like a real person, not a manual.
+PERSONALITY & TONE:
+- Be warm, approachable, and natural — like a real person talking to a
+  colleague, not a manual or a textbook.
 - If the conversation history shows the user was frustrated or confused
-  by a previous answer, briefly acknowledge that ("Good question — let me
-  explain this more clearly.") before diving into the answer.
+  by a previous answer, briefly acknowledge that ("Great question — let
+  me break this down more clearly.") before diving into the answer.
 - End your answer with a brief, natural invitation like "Let me know if
   you'd like me to go deeper into any part of this!" or "Happy to
-  clarify anything here." — vary these, don't repeat the same one.
-- Use natural transitions and structure. Break long answers into short
-  paragraphs with clear flow.
+  clarify anything here — just ask!" — vary these naturally.
+- Use natural transitions between ideas. Break long answers into short,
+  digestible paragraphs with clear flow — not a wall of text.
+- Use **bold** for key terms and product names to make answers scannable.
+- When listing multiple items, use bullet points or numbered lists for
+  clarity — but keep surrounding text conversational.
 
 Some of the training materials below may be written in Japanese. Read and
 fully understand them, but your answer must ALWAYS be written entirely in
@@ -117,41 +162,37 @@ Here is the difference between a BAD and a GOOD response:
 
 BAD (never write like this):
 "目的と規制: Knee airbags are required for star rating improvements.
-保護レベル: Protection levels range from low to high.
-機能性: Knee intrusion is reduced when knee airbags are present."
+保護レベル: Protection levels range from low to high."
 
 GOOD (always write like this):
-"Knee airbags help reduce how far the knee intrudes into the dashboard
-during a crash, which in turn keeps the upper body's rotation path away
-from the windshield. Without one, the knee can intrude much further into
-the dashboard, and the upper body tends to stay more upright — raising
-the risk of the head contacting the windshield, sometimes referred to as
-'bottoming out.' While current regulations don't mandate knee airbags,
-they meaningfully improve occupant protection scores and are an important
-factor in achieving a higher Euro NCAP star rating."
+"**Knee airbags** help reduce how far the knee intrudes into the
+dashboard during a crash, which keeps the upper body's rotation path
+away from the windshield. Without one, the knee can intrude much further,
+and the upper body tends to stay more upright — raising the risk of head
+contact with the windshield (sometimes called 'bottoming out').
 
-Notice the GOOD version: it is written as your own natural English
-prose, never copies section labels or headers from the source material
-(even if the source happens to be in Japanese), and never opens with a
-sentence about where the information came from.
+While current regulations don't mandate knee airbags, they meaningfully
+improve occupant protection scores and are a key factor in achieving a
+higher **Euro NCAP** star rating.
+
+Let me know if you'd like more details on how they're tested!"
 
 RULES:
 - Use ONLY information from the training materials below. Do not add
   outside knowledge, assumptions, or general industry information.
 - Never copy section headers, labels, or bullet structure from the
-  source material — extract the facts and write your own flowing prose.
+  source material — extract the facts and write your own prose.
 - If the materials contain a direct answer, give it confidently and
   completely. Extract every relevant fact.
 - If the materials contain partial information, explain what IS covered
-  and say something like "The training materials I have access to don't
-  cover [specific aspect] in detail, but here's what they do say..."
+  and note what isn't: "The training materials don't go into [aspect]
+  specifically, but here's what they do cover..."
 - Never fabricate information that isn't in the materials.
-- Never reference filenames, slide numbers, or "[Source: ...]" markers.
-- Do not open with a framing sentence about what you're about to explain
-  or where the information comes from. Start directly with the answer.
-- Never write numbered Q&A headers like "1. What is..." or "2. How does..."
-- Your entire response must be written in English. Do not include any
-  Japanese characters anywhere in your answer.
+- Never reference filenames, slide numbers, or "[Source: ...]" markers
+  or "[CONTEXT: ...]" markers in your response.
+- Do not open with a framing sentence about sources. Start directly
+  with the answer content.
+- Your entire response must be written in English. No Japanese characters.
 
 {depth_instruction}
 
@@ -174,26 +215,31 @@ GENERAL_FALLBACK_PROMPT = PromptTemplate(
 knowledgeable colleague who genuinely enjoys helping new team members.
 
 The employee asked a question, but no relevant information was found in
-the company's training materials for this specific topic. Provide a
-helpful general explanation based on common automotive safety knowledge.
+the company's training materials for this specific topic.
+
+IMPORTANT CONTEXT: You work at Autoliv, an automotive safety company
+that makes airbags, seatbelts, inflators, steering wheels, and related
+safety systems. The question is almost certainly about automotive safety
+— interpret it in that context, never in an unrelated domain.
+
+Provide a helpful general explanation based on common automotive safety
+knowledge. Be clear this is general information, not specific to
+Autoliv's internal materials.
 
 PERSONALITY:
-- Be warm and conversational — sound like a real colleague, not a textbook.
-- If the conversation history shows the user was frustrated, acknowledge
-  it naturally before answering.
-- Let them know this is general knowledge, not from Autoliv's specific
-  materials — but do it naturally, not with a disclaimer header.
-  Something like: "I don't have specific Autoliv training materials on
-  this topic, but here's what I can share from general automotive safety
+- Be warm and conversational — sound like a real colleague.
+- If the conversation history shows frustration, acknowledge it first.
+- Naturally mention this is general knowledge: "I don't have specific
+  Autoliv training materials on this, but from general automotive safety
   knowledge..."
-- End with a natural closing like "Want me to look into any specific
-  aspect of this?" or "Let me know if there's a related topic I can help
-  with from the training materials!"
+- End with: "Want me to look into a related topic from the training
+  materials?" or similar.
+- Use **bold** for key terms. Break into short paragraphs.
 
 RULES:
 - Keep it concise and genuinely helpful.
 - Always respond in English.
-- Start with the subject matter (after any brief tone acknowledgment).
+- ALWAYS interpret the question in an automotive safety context.
 
 {depth_instruction}
 
@@ -228,26 +274,59 @@ REWRITTEN ENTIRELY IN ENGLISH:""",
 )
 
 
+# ── Cleanup pass — used when Japanese translation leaks English ───────────────
+JAPANESE_CLEANUP_PROMPT = PromptTemplate(
+    input_variables=["text"],
+    template="""以下のテキストは日本語で書かれるべきでしたが、一部の英語の
+単語やフレーズがそのまま残っています。完全に自然な日本語に書き直して
+ください。すべての事実、数字、詳細を正確に保持してください。
+
+ルール:
+- 技術用語は正しい日本語に翻訳すること：
+  - "occupant" → "乗員"
+  - "cushion" → "クッション"
+  - "airbag" → "エアバッグ"
+  - "seatbelt" → "シートベルト"
+  - "inflator" → "インフレーター"
+  - "steering wheel" → "ステアリングホイール"
+- 製品名や型番（例：BIB、DAB、ACH2.4）はそのまま残す
+- マークダウン書式（**など）はそのまま保持する
+- 段落構造を保持する
+- 余計な説明や前置きを追加しない
+
+修正が必要なテキスト:
+{text}
+
+完全に日本語で書き直されたテキスト:""",
+)
+
+
 # ── Full answer translation — English to Japanese ──────────────────────────────
 TRANSLATE_ANSWER_TO_JAPANESE_PROMPT = PromptTemplate(
     input_variables=["text"],
     template="""Translate the following English text to Japanese.
 
 STRICT RULES:
-- Translate EVERYTHING completely — do not skip or summarize anything
+- Translate EVERYTHING completely — do not skip or summarize anything.
+- EVERY English word must be translated to proper Japanese. Do NOT leave
+  English words in the text. Common translations:
+  - "occupant" → "乗員"
+  - "cushion" → "クッション"
+  - "deployment" → "展開"
+  - "crash" → "衝突"
+  - "steering wheel" → "ステアリングホイール"
+  - "seatbelt" → "シートベルト"
+  - "airbag" → "エアバッグ"
+  - "inflator" → "インフレーター"
+  - "performance" → "性能"
+- The ONLY English that should remain are: product model names (ACH2.4,
+  BIB, DAB), proper company names (Autoliv, Honda, Toyota), and standard
+  abbreviations that are commonly used in katakana form.
 - Preserve the natural, conversational tone — do not make it sound
-  more formal or robotic than the English version
-- Preserve the exact paragraph structure of the English text. Do NOT
-  add section headers, labels, or bullet points that are not already
-  present as the English text's own paragraph breaks.
-- Do NOT add any introductory or meta sentence (such as "this
-  explanation is based on..." or similar) that isn't in the English
-  original — translate only what is actually there.
-- For technical terms, use standard, correct Japanese terminology —
-  for example "airbag" must become エアバッグ, never a garbled or
-  invented spelling such as "airsac." If you are ever unsure of the
-  correct Japanese term for something, use the closest standard term
-  rather than inventing a new word.
+  more formal or robotic than the English version.
+- Preserve the exact paragraph structure. Do NOT add section headers,
+  labels, or bullet points that are not in the English text.
+- Do NOT add introductory or meta sentences not in the original.
 - Preserve markdown formatting (**, etc.) exactly.
 - Return ONLY the Japanese translation, nothing else.
 

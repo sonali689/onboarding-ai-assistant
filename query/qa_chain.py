@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -12,10 +13,12 @@ from query.prompt_templates import (
     CONDENSE_QUESTION_PROMPT,
     TRANSLATE_QUESTION_TO_ENGLISH_PROMPT,
     QUERY_CORRECTION_PROMPT,
+    QUERY_EXPANSION_PROMPT,
     RELEVANCE_FILTER_PROMPT,
     GENERAL_FALLBACK_PROMPT,
     AUTOLIV_ANSWER_PROMPT,
     ENGLISH_CLEANUP_PROMPT,
+    JAPANESE_CLEANUP_PROMPT,
     TRANSLATE_ANSWER_TO_JAPANESE_PROMPT,
 )
 from config import (
@@ -113,10 +116,7 @@ def detect_language(text: str) -> str:
 def is_mostly_japanese(text: str, threshold: float = 0.15) -> bool:
     """
     Checks whether text that was supposed to be pure English actually
-    leaked a meaningful amount of Japanese. Used as a safety net before
-    translating — translating already-Japanese-contaminated text
-    produces garbled double-translation artifacts (e.g. "airbag"
-    becoming "airsac").
+    leaked a meaningful amount of Japanese.
     """
     if not text:
         return False
@@ -127,12 +127,56 @@ def is_mostly_japanese(text: str, threshold: float = 0.15) -> bool:
     return (cjk_count / max(len(text), 1)) > threshold
 
 
+def has_leaked_english(text: str) -> bool:
+    """
+    Checks whether a Japanese translation still contains significant
+    bare English words that should have been translated. Product names
+    and abbreviations are excluded.
+
+    Returns True if cleanup is needed.
+    """
+    if not text:
+        return False
+
+    # Words that are OK to leave in English (product names, abbreviations)
+    allowed_english = {
+        "autoliv", "bib", "dab", "pab", "kab", "sab", "cab", "ncap",
+        "euro", "honda", "toyota", "ach", "ahch", "sop", "cv", "mm",
+        "kn", "ok", "let", "me", "know", "if",
+    }
+
+    # Find all ASCII word sequences (3+ letters to avoid abbreviations)
+    english_words = re.findall(r'[a-zA-Z]{3,}', text)
+
+    # Count words that aren't in the allowed list
+    leaked = [
+        w for w in english_words
+        if w.lower() not in allowed_english
+    ]
+
+    # If more than 5 bare English words leaked, it needs cleanup
+    if len(leaked) > 5:
+        print(f"[RAG] Leaked English words in JP translation: {leaked[:10]}...")
+        return True
+
+    return False
+
+
 def clean_up_english(text: str, level: str = "standard") -> str:
     """Rewrites contaminated text to be purely English, preserving facts."""
     print("[RAG] WARNING: English-stage answer leaked Japanese — cleaning up...")
     llm   = get_extraction_llm(level)
     chain = ENGLISH_CLEANUP_PROMPT | llm | StrOutputParser()
     result = invoke_with_retry(chain, {"text": text}, "clean_up_english")
+    return result if result else text
+
+
+def clean_up_japanese(text: str) -> str:
+    """Rewrites a Japanese translation that leaked English words."""
+    print("[RAG] WARNING: Japanese translation leaked English — cleaning up...")
+    llm   = get_utility_llm()
+    chain = JAPANESE_CLEANUP_PROMPT | llm | StrOutputParser()
+    result = invoke_with_retry(chain, {"text": text}, "clean_up_japanese")
     return result if result else text
 
 
@@ -154,7 +198,7 @@ def format_history_brief(history: list[dict]) -> str:
     """Shorter version for passing to answer prompts (tone awareness only)."""
     if not history:
         return "(No previous conversation)"
-    recent = history[-3:]  # last 3 messages only, for tone sensing
+    recent = history[-3:]
     lines  = []
     for msg in recent:
         role    = "User" if msg.get("role") == "user" else "Assistant"
@@ -175,6 +219,25 @@ def correct_query(question: str) -> str:
     if corrected and corrected.lower().strip() != question.lower().strip():
         print(f"[RAG] Typo correction: '{question}' → '{corrected}'")
         return corrected
+    return question
+
+
+# ── Query expansion (generate search-optimized terms) ─────────────────────────
+
+def expand_query(question: str) -> str:
+    """
+    Generate a search-optimized query with acronyms and related terms.
+    This is critical for vague queries like "what is bag in belt?" where
+    the user doesn't use the exact terms stored in the training materials.
+    """
+    print("[LLM RUN] Expanding query with related terms...")
+    llm   = get_utility_llm()
+    chain = QUERY_EXPANSION_PROMPT | llm | StrOutputParser()
+    expanded = invoke_with_retry(chain, {"question": question}, "expand_query")
+
+    if expanded and len(expanded.strip()) > len(question.strip()):
+        print(f"[RAG] Query expansion: '{question}' → '{expanded}'")
+        return expanded
     return question
 
 
@@ -203,7 +266,6 @@ def resolve_question(question: str, history: list[dict]) -> tuple[str, str]:
             {"history": format_history(history), "question": question},
             "resolve_question",
         )
-        # Condensed is always English — keep original for bilingual search
         return condensed, question
 
     if lang == 'ja':
@@ -217,7 +279,13 @@ def translate_to_japanese(text: str) -> str:
     print("[LLM RUN] Translating full combined response to Japanese...")
     llm   = get_utility_llm()
     chain = TRANSLATE_ANSWER_TO_JAPANESE_PROMPT | llm | StrOutputParser()
-    return invoke_with_retry(chain, {"text": text}, "translate_to_japanese")
+    result = invoke_with_retry(chain, {"text": text}, "translate_to_japanese")
+
+    # ── Quality check: did the translation leak English words? ─────────
+    if result and has_leaked_english(result):
+        result = clean_up_japanese(result)
+
+    return result
 
 
 # ── Relevance filtering ─────────────────────────────────────────────────────────
@@ -393,10 +461,14 @@ def ask(
     level: str = "standard",
 ) -> dict:
     """
-    Option B flow: Documents first. General knowledge ONLY as fallback.
-    Bilingual retrieval for cross-language consistency.
-    Typo correction before retrieval.
-    History-aware prompts for conversational tone.
+    Full pipeline:
+    1. Detect language, resolve question (translate/condense)
+    2. Correct typos
+    3. Expand query with search terms
+    4. Bilingual retrieval (original + English + expanded)
+    5. Filter for relevance
+    6. Generate document-grounded answer (or general fallback)
+    7. Translate to Japanese if needed (with quality check)
     """
     history = history or []
     if level not in ("standard", "extended"):
@@ -408,13 +480,19 @@ def ask(
     # ── Typo correction ───────────────────────────────────────────────
     en_question = correct_query(en_question)
 
-    print(f"[RAG] lang={lang} | level={level} | resolved question: {en_question}")
+    # ── Query expansion — generate search-optimized terms ─────────────
+    expanded_question = expand_query(en_question)
+
+    print(f"[RAG] lang={lang} | level={level} | resolved: {en_question}")
+    print(f"[RAG] expanded: {expanded_question}")
 
     retrieval_k = TOP_K_EXTENDED if level == "extended" else TOP_K
 
-    # ── Bilingual retrieval ───────────────────────────────────────────
+    # ── Bilingual retrieval with expansion ────────────────────────────
     try:
-        raw_docs = retrieve_bilingual(original_question, en_question, k=retrieval_k)
+        raw_docs = retrieve_bilingual(
+            original_question, expanded_question, k=retrieval_k
+        )
     except Exception as e:
         print(f"[RAG] RETRIEVAL ERROR: {e}")
         print(traceback.format_exc())
@@ -465,8 +543,8 @@ def ask_stream(
       {"type": "done", "sources": [...], "source_type": "..."}
       {"type": "error", "message": "..."}
 
-    Option B flow: Documents first. General knowledge ONLY as fallback.
-    Bilingual retrieval + typo correction + history-aware prompts.
+    Full pipeline with bilingual retrieval, typo correction, query
+    expansion, and history-aware prompts.
     """
     history = history or []
     if level not in ("standard", "extended"):
@@ -479,13 +557,19 @@ def ask_stream(
         # ── Typo correction ───────────────────────────────────────────
         en_question = correct_query(en_question)
 
-        print(f"[RAG-STREAM] lang={lang} | level={level} | resolved question: {en_question}")
+        # ── Query expansion ───────────────────────────────────────────
+        expanded_question = expand_query(en_question)
+
+        print(f"[RAG-STREAM] lang={lang} | level={level} | resolved: {en_question}")
+        print(f"[RAG-STREAM] expanded: {expanded_question}")
 
         retrieval_k = TOP_K_EXTENDED if level == "extended" else TOP_K
 
-        # ── Bilingual retrieval ───────────────────────────────────────
+        # ── Bilingual retrieval with expansion ────────────────────────
         try:
-            raw_docs = retrieve_bilingual(original_question, en_question, k=retrieval_k)
+            raw_docs = retrieve_bilingual(
+                original_question, expanded_question, k=retrieval_k
+            )
         except Exception as e:
             print(f"[RAG-STREAM] RETRIEVAL ERROR: {e}")
             raw_docs = []
@@ -502,7 +586,6 @@ def ask_stream(
 
         # ── Decide which prompt to use ─────────────────────────────────
         if relevant_docs:
-            # DOCUMENT-GROUNDED answer
             llm          = get_extraction_llm(level)
             context_text = format_docs(relevant_docs)
             prompt       = AUTOLIV_ANSWER_PROMPT
@@ -513,7 +596,6 @@ def ask_stream(
                 "history":           history_text,
             }
         else:
-            # GENERAL FALLBACK — no matching docs
             llm    = get_llm(level)
             prompt = GENERAL_FALLBACK_PROMPT
             inputs = {
@@ -533,7 +615,6 @@ def ask_stream(
                     yield {"type": "token", "text": piece}
 
             if not "".join(answer_chunks).strip():
-                # Retry without streaming
                 if relevant_docs:
                     fallback = get_autoliv_answer(en_question, relevant_docs, "standard", history)
                 else:
@@ -542,7 +623,7 @@ def ask_stream(
                     yield {"type": "token", "text": fallback}
 
         else:
-            # ── Japanese — build English invisibly, stream translation ──
+            # ── Japanese — build English invisibly, then translate ─────
             english_answer = invoke_with_retry(chain, inputs, "stream_build_english")
 
             if english_answer and is_mostly_japanese(english_answer):
@@ -562,16 +643,28 @@ def ask_stream(
                     "Please try rephrasing your question or try again."
                 )
 
-            ja_llm  = get_utility_llm()
+            # ── Translate to Japanese ─────────────────────────────────
+            ja_llm   = get_utility_llm()
             ja_chain = TRANSLATE_ANSWER_TO_JAPANESE_PROMPT | ja_llm | StrOutputParser()
+
             ja_chunks = []
             for piece in ja_chain.stream({"text": english_answer}):
                 if piece:
                     ja_chunks.append(piece)
                     yield {"type": "token", "text": piece}
 
-            if not "".join(ja_chunks).strip():
+            ja_full = "".join(ja_chunks).strip()
+
+            if not ja_full:
                 yield {"type": "token", "text": english_answer}
+            elif has_leaked_english(ja_full):
+                # Quality fix: re-translate leaked English words
+                cleaned = clean_up_japanese(ja_full)
+                # We already streamed the bad version, so we can't un-stream it.
+                # But for non-streaming callers (ask()), the cleanup happens
+                # inside translate_to_japanese(). For streaming, log a warning.
+                print("[RAG-STREAM] WARNING: JP translation had leaked English. "
+                      "Cleanup applied but streamed version may have artifacts.")
 
         yield {"type": "done", "sources": sources, "source_type": source_type}
 
