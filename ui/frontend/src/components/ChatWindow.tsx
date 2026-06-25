@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { Globe } from 'lucide-react'
 import Message from './Message'
 import { useLang } from '../contexts/LanguageContext'
 import type { Message as MessageType } from '../types'
@@ -30,6 +31,55 @@ interface Props {
   onSuggestion: (text: string) => void
 }
 
+/* ── Floating top-right controls (language toggle + status) ─────── */
+function TopControls({ isLoading }: { isLoading: boolean }) {
+  const { lang, toggleLang, t } = useLang()
+
+  return (
+    <div
+      className="absolute top-3 right-4 z-10 flex items-center gap-3"
+    >
+      {/* Language segmented control */}
+      <div className="flex items-center rounded-full overflow-hidden shadow-sm"
+           style={{ border: '1.5px solid #003DA5', background: '#fff' }}>
+        <button
+          onClick={() => { if (lang !== 'en') toggleLang() }}
+          className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold
+                     transition-all duration-150"
+          style={{
+            background: lang === 'en' ? '#003DA5' : 'transparent',
+            color:      lang === 'en' ? '#ffffff' : '#003DA5',
+          }}
+        >
+          <Globe size={11} />
+          EN
+        </button>
+        <div style={{ width: '1px', height: '16px', background: '#003DA5', opacity: 0.3 }} />
+        <button
+          onClick={() => { if (lang !== 'ja') toggleLang() }}
+          className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold
+                     transition-all duration-150"
+          style={{
+            background: lang === 'ja' ? '#003DA5' : 'transparent',
+            color:      lang === 'ja' ? '#ffffff' : '#003DA5',
+          }}
+        >
+          JA
+        </button>
+      </div>
+
+      {/* Status dot */}
+      <div className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-full shadow-sm"
+           style={{ border: '1px solid #E5E7EB' }}>
+        <div className={`w-1.5 h-1.5 rounded-full ${isLoading ? 'bg-amber-400' : 'bg-green-400'}`} />
+        <span className="text-xs font-medium" style={{ color: '#6B7280' }}>
+          {isLoading ? t.thinking : t.ready}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 export default function ChatWindow({ messages, isLoading, onSuggestion }: Props) {
   const containerRef     = useRef<HTMLDivElement>(null)
   const bottomRef         = useRef<HTMLDivElement>(null)
@@ -56,7 +106,6 @@ export default function ChatWindow({ messages, isLoading, onSuggestion }: Props)
     prevCountRef.current = messages.length
 
     if (!didMountRef.current) {
-      // Initial load (restored chat) — jump straight to the bottom, no animation
       didMountRef.current = true
       requestAnimationFrame(() => {
         bottomRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' })
@@ -67,8 +116,6 @@ export default function ChatWindow({ messages, isLoading, onSuggestion }: Props)
     const addedNewMessage = messages.length > prevCount
 
     if (addedNewMessage) {
-      // New question sent — scroll to the start of the new exchange,
-      // not past it to the bottom (which would skip straight to sources)
       stickToBottomRef.current = true
       const anchor = messages[messages.length - 2] ?? messages[messages.length - 1]
       requestAnimationFrame(() => {
@@ -76,7 +123,6 @@ export default function ChatWindow({ messages, isLoading, onSuggestion }: Props)
         el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       })
     } else if (stickToBottomRef.current) {
-      // Content streaming in and user hasn't scrolled away — keep following
       bottomRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' })
     }
   }, [messages])
@@ -85,8 +131,10 @@ export default function ChatWindow({ messages, isLoading, onSuggestion }: Props)
   if (messages.length === 0) {
     return (
       <div className="flex-1 overflow-y-auto flex flex-col items-center
-                      justify-center px-6 pb-12"
+                      justify-center px-6 pb-12 relative"
            style={{ background: '#F8F9FB' }}>
+
+        <TopControls isLoading={isLoading} />
 
         <div className="mb-6 text-center">
           <div className="w-14 h-14 rounded-2xl mx-auto mb-5 flex flex-col
@@ -150,8 +198,12 @@ export default function ChatWindow({ messages, isLoading, onSuggestion }: Props)
 
   /* ── Messages ── */
   return (
-    <div ref={containerRef} className="flex-1 overflow-y-auto py-6" style={{ background: '#F8F9FB' }}>
-      <div className="max-w-3xl mx-auto">
+    <div ref={containerRef} className="flex-1 overflow-y-auto py-6 relative"
+         style={{ background: '#F8F9FB' }}>
+
+      <TopControls isLoading={isLoading} />
+
+      <div className="max-w-3xl mx-auto pt-6">
         {messages.map(msg => (
           <Message key={msg.id} message={msg} />
         ))}

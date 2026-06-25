@@ -43,14 +43,30 @@ export default function LoginPage() {
     <div className="h-screen flex flex-col items-center justify-center px-4"
          style={{ background: '#F0F4FA' }}>
 
-      <button
-        onClick={toggleLang}
-        className="absolute top-5 right-5 text-xs font-semibold px-3 py-1.5
-                   rounded-full bg-white shadow-sm transition-all hover:shadow-md"
-        style={{ border: '1px solid #E5E7EB', color: '#003DA5' }}
-      >
-        {lang === 'en' ? '日本語' : 'English'}
-      </button>
+      <div className="absolute top-5 right-5 flex items-center rounded-full overflow-hidden"
+           style={{ border: '1.5px solid #003DA5', background: '#fff' }}>
+        <button
+          onClick={() => { if (lang !== 'en') toggleLang() }}
+          className="px-3 py-1.5 text-xs font-bold transition-all duration-150"
+          style={{
+            background: lang === 'en' ? '#003DA5' : 'transparent',
+            color:      lang === 'en' ? '#ffffff' : '#003DA5',
+          }}
+        >
+          EN
+        </button>
+        <div style={{ width: '1px', height: '16px', background: '#003DA5', opacity: 0.3 }} />
+        <button
+          onClick={() => { if (lang !== 'ja') toggleLang() }}
+          className="px-3 py-1.5 text-xs font-bold transition-all duration-150"
+          style={{
+            background: lang === 'ja' ? '#003DA5' : 'transparent',
+            color:      lang === 'ja' ? '#ffffff' : '#003DA5',
+          }}
+        >
+          JA
+        </button>
+      </div>
 
       <div className="bg-white rounded-3xl shadow-lg w-full flex flex-col items-center"
            style={{ maxWidth: '400px', border: '1px solid #E5E7EB', padding: '40px 36px' }}>

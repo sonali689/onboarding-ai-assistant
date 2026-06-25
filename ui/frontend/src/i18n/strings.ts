@@ -14,6 +14,9 @@ export const strings = {
     fromMaterials:   'From Autoliv training materials',
     generalKnowledge:'General knowledge',
     error:           'Sorry, something went wrong. Please try again.',
+    standard:        'Standard',
+    extended:        'Extended thinking',
+    extendedHint:    'Slower, more thorough',
     localAI:         'Local AI · EN · JA · v2.0',
     suggestions: [
       { text: 'What are inflators and their various types?',    lang: 'EN' },
@@ -41,6 +44,9 @@ export const strings = {
     fromMaterials:   'Autoliv研修資料より',
     generalKnowledge:'一般知識',
     error:           'エラーが発生しました。もう一度お試しください。',
+    standard:        'スタンダード',
+    extended:        '詳細分析',
+    extendedHint:    'より詳しく、時間がかかります',
     localAI:         'ローカルAI · EN · JA · v2.0',
     suggestions: [
       { text: 'インフレーターとその種類について教えてください', lang: 'JA' },

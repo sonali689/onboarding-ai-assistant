@@ -5,7 +5,6 @@ import { X, FileText, Download,
 
 interface Props {
   file:        string
-  slideNumber: number
   subfolder:   string
   onClose:     () => void
   onPrev?:     () => void
@@ -19,7 +18,7 @@ function isPDF(filename: string) {
 }
 
 export default function SlideModal({
-  file, slideNumber, subfolder,
+  file, subfolder,
   onClose, onPrev, onNext, hasPrev, hasNext,
 }: Props) {
   const overlayRef         = useRef<HTMLDivElement>(null)
@@ -27,14 +26,13 @@ export default function SlideModal({
   const [error,   setError]   = useState(false)
 
   const fileUrl    = `/api/file/${encodeURIComponent(file)}`
-  const pdfWithPage = `${fileUrl}#page=${slideNumber}`
   const isFileAPDF  = isPDF(file)
 
-  // Reset loading state when slide changes
+  // Reset loading state when file changes
   useEffect(() => {
     setLoading(true)
     setError(false)
-  }, [file, slideNumber])
+  }, [file])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -84,7 +82,7 @@ export default function SlideModal({
                 {file}
               </p>
               <p className="text-xs text-gray-400 mt-0.5">
-                {isFileAPDF ? 'Page' : 'Slide'} {slideNumber} · {subfolder}
+                {subfolder}
               </p>
             </div>
 
@@ -145,7 +143,7 @@ export default function SlideModal({
 
             {/* Open in new tab */}
             <a
-              href={isFileAPDF ? pdfWithPage : fileUrl}
+              href={fileUrl}
               target="_blank"
               rel="noreferrer"
               title="Open in new tab"
@@ -216,7 +214,7 @@ export default function SlideModal({
                     Could not load the PDF
                   </p>
                   <a
-                    href={pdfWithPage}
+                    href={fileUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="flex items-center gap-2 px-4 py-2 rounded-xl
@@ -229,7 +227,7 @@ export default function SlideModal({
                 </div>
               ) : (
                 <embed
-                  src={pdfWithPage}
+                  src={fileUrl}
                   type="application/pdf"
                   className="w-full h-full"
                   onLoad={() => setLoading(false)}
@@ -259,42 +257,8 @@ export default function SlideModal({
                   {file}
                 </h3>
                 <p className="text-sm text-gray-500 mt-2 leading-relaxed">
-                  PowerPoint files open in Microsoft PowerPoint.
-                  After opening, navigate to{' '}
-                  <span
-                    className="font-bold px-2 py-0.5 rounded-lg"
-                    style={{ background: '#003DA5', color: 'white' }}
-                  >
-                    Slide {slideNumber}
-                  </span>
-                  {' '}for the referenced content.
+                  This file will open in Microsoft PowerPoint.
                 </p>
-              </div>
-
-              {/* Slide number callout */}
-              <div
-                className="flex items-center gap-3 px-6 py-4 rounded-2xl w-full"
-                style={{ background: '#EEF3FC', border: '1px solid #C7D7F5' }}
-              >
-                <div
-                  className="w-10 h-10 rounded-xl flex items-center
-                             justify-center shrink-0 text-white font-black text-sm"
-                  style={{ background: '#003DA5' }}
-                >
-                  {slideNumber}
-                </div>
-                <div className="text-left">
-                  <p className="text-xs font-semibold"
-                     style={{ color: '#003DA5' }}>
-                    Navigate to this slide
-                  </p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    Press <kbd className="px-1.5 py-0.5 rounded text-xs
-                                         font-mono bg-white border border-gray-200
-                                         text-gray-600">Ctrl+G</kbd> in PowerPoint
-                    and enter {slideNumber}
-                  </p>
-                </div>
               </div>
 
               {/* Download button */}
@@ -353,7 +317,7 @@ export default function SlideModal({
             )}
           </p>
           <p className="text-xs font-semibold" style={{ color: '#003DA5' }}>
-            {isFileAPDF ? 'Page' : 'Slide'} {slideNumber} of {file}
+            {isFileAPDF ? 'PDF' : 'PPTX'} · {file}
           </p>
         </div>
       </div>

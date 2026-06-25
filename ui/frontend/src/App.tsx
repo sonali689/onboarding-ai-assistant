@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { Globe, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import Sidebar       from './components/Sidebar'
 import ChatWindow    from './components/ChatWindow'
 import InputBar      from './components/InputBar'
@@ -28,7 +28,7 @@ const SIDEBAR_MAX     = 420
 const SIDEBAR_DEFAULT = 256
 
 export default function App() {
-  const { t, lang, toggleLang }        = useLang()
+  const { t, lang }                   = useLang()
   const { user, loading: authLoading } = useAuth()
 
   const [sessions,  setSessions]  = useState<ChatSession[]>([])
@@ -229,37 +229,6 @@ export default function App() {
       <ResizeHandle onResize={handleSidebarResize} />
 
       <div className="flex flex-col flex-1 overflow-hidden min-w-0">
-
-        <div className="h-12 bg-white px-6 flex items-center justify-between shrink-0"
-             style={{ borderBottom: '1px solid #E5E7EB', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-
-          <p className="text-xs font-medium text-gray-600 truncate">
-            {active?.title ?? t.newConversation}
-          </p>
-
-          <div className="flex items-center gap-3 shrink-0">
-            <button
-              onClick={toggleLang}
-              title={lang === 'en' ? 'Switch to Japanese' : '英語に切り替え'}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full
-                         text-xs font-semibold transition-all duration-150 active:scale-95"
-              style={{ border: '1.5px solid #003DA5', color: '#003DA5', background: 'transparent' }}
-              onMouseEnter={e => { e.currentTarget.style.background = '#003DA5'; e.currentTarget.style.color = '#ffffff' }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#003DA5' }}
-            >
-              <Globe size={12} />
-              {lang === 'en' ? '日本語' : 'English'}
-            </button>
-
-            <div className="flex items-center gap-1.5">
-              <div className={`w-1.5 h-1.5 rounded-full ${isLoading ? 'bg-amber-400' : 'bg-green-400'}`} />
-              <span className="text-xs" style={{ color: '#9CA3AF' }}>
-                {isLoading ? t.thinking : t.ready}
-              </span>
-            </div>
-          </div>
-        </div>
-
         <ChatWindow
           messages={messages}
           isLoading={isLoading}
@@ -269,4 +238,4 @@ export default function App() {
       </div>
     </div>
   )
-}
+}

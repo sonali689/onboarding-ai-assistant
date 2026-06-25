@@ -36,7 +36,7 @@ export default function SourceCard({ sources, source_type }: Props) {
           }
         </div>
 
-        {/* Clickable source items */}
+        {/* Clickable source items — deduplicated by file, no slide numbers */}
         {!isGeneral && sources.length > 0 && (
           <div className="space-y-1.5">
             {sources.map((s, i) => (
@@ -75,8 +75,7 @@ export default function SourceCard({ sources, source_type }: Props) {
                     {s.file}
                   </p>
                   <p className="text-xs text-gray-400 mt-0.5">
-                    Slide {s.slide_number} · {s.subfolder} ·{' '}
-                    {s.lang_hint.toUpperCase()}
+                    {s.subfolder}{s.lang_hint ? ` · ${s.lang_hint.toUpperCase()}` : ''}
                   </p>
                 </div>
                 <div className="flex items-center gap-1 shrink-0
@@ -96,7 +95,6 @@ export default function SourceCard({ sources, source_type }: Props) {
       {modalIndex !== null && sources[modalIndex] && (
         <SlideModal
           file={sources[modalIndex].file}
-          slideNumber={sources[modalIndex].slide_number}
           subfolder={sources[modalIndex].subfolder}
           onClose={closeModal}
           onPrev={goPrev}

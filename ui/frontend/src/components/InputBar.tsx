@@ -49,7 +49,7 @@ export default function InputBar({ onSend, disabled }: Props) {
             }}
           >
             <Zap size={12} />
-            Standard
+            {t.standard}
           </button>
 
           <button
@@ -63,12 +63,12 @@ export default function InputBar({ onSend, disabled }: Props) {
             }}
           >
             <Sparkles size={12} />
-            Extended thinking
+            {t.extended}
           </button>
 
           {level === 'extended' && (
             <span className="text-xs" style={{ color: '#9CA3AF' }}>
-              Slower, more thorough
+              {t.extendedHint}
             </span>
           )}
         </div>
